@@ -1,0 +1,304 @@
+{
+  "schemaVersion": "1.0",
+  "updated": "2026-10-16T00:00:00Z",
+  "source": "UUP2ISO FR5 系统优化规则库（对齐 Dism++ Data.xml / Languages\\en.xml）",
+  "rules": [
+    {
+      "id": "FR5-OP-C01",
+      "name": "清理被取代的 WinSxS 组件",
+      "nameEn": "Clean up superseded components",
+      "domain": "FR5",
+      "group": "空间回收",
+      "description": "清理被取代的组件并缩减组件存储；可选重置基础以进一步减少体积。",
+      "level": "medium",
+      "defaultOn": true,
+      "presets": ["safe", "standard", "aggressive"],
+      "order": 200,
+      "applicable": { "imageFlags": ["offline"] },
+      "actions": [
+        { "type": "procName", "name": "DismComponentCleanup" }
+      ]
+    },
+    {
+      "id": "FR5-OP-C02",
+      "name": "清理以前的 Windows 安装",
+      "nameEn": "Previous Windows installations",
+      "domain": "FR5",
+      "group": "空间回收",
+      "description": "删除升级或还原产生的 Windows.old 残留。",
+      "level": "medium",
+      "defaultOn": true,
+      "presets": ["safe", "standard", "aggressive"],
+      "order": 210,
+      "actions": [
+        { "type": "deletePath", "path": "%SystemDrive%\\Windows.old*", "recurse": true, "skipError": true }
+      ]
+    },
+    {
+      "id": "FR5-OP-C04",
+      "name": "清理 Windows 下载缓存",
+      "nameEn": "Windows update download cache",
+      "domain": "FR5",
+      "group": "空间回收",
+      "description": "删除已下载的更新负载。",
+      "level": "low",
+      "defaultOn": true,
+      "presets": ["safe", "standard", "aggressive"],
+      "order": 210,
+      "actions": [
+        { "type": "deletePath", "path": "%SystemRoot%\\SoftwareDistribution\\Download", "recurse": true, "skipError": true }
+      ]
+    },
+    {
+      "id": "FR5-OP-C14",
+      "name": "清理临时文件",
+      "nameEn": "Temporary files",
+      "domain": "FR5",
+      "group": "空间回收",
+      "description": "删除系统与用户的临时文件。",
+      "level": "low",
+      "defaultOn": true,
+      "presets": ["safe", "standard", "aggressive"],
+      "order": 220,
+      "actions": [
+        { "type": "deletePath", "path": "%SystemRoot%\\Temp", "recurse": true, "skipError": true },
+        { "type": "deletePath", "path": "%UserProfile%\\AppData\\Local\\Temp", "recurse": true, "skipError": true }
+      ]
+    },
+    {
+      "id": "FR5-OP-C25",
+      "name": "CompactOS 压缩（较慢）",
+      "nameEn": "Compact OS",
+      "domain": "FR5",
+      "group": "空间回收",
+      "description": "对只读系统文件进行压缩以节省空间。离线映像受限，默认在首次启动阶段执行。",
+      "level": "medium",
+      "defaultOn": false,
+      "presets": ["aggressive"],
+      "order": 260,
+      "actions": [
+        { "type": "procName", "name": "DismCompactOs" }
+      ]
+    },
+    {
+      "id": "FR5-OP-T01",
+      "name": "关闭遥测/诊断数据",
+      "nameEn": "Disable telemetry",
+      "domain": "FR5",
+      "group": "隐私与遥测",
+      "description": "将诊断数据上报级别设为最低。",
+      "warning": "Family/Pro 版可能被系统忽略。",
+      "level": "medium",
+      "defaultOn": true,
+      "presets": ["safe", "standard", "aggressive"],
+      "order": 300,
+      "actions": [
+        { "type": "regWrite", "hive": "SOFTWARE", "key": "Policies\\Microsoft\\Windows\\DataCollection", "value": "AllowTelemetry", "regType": "REG_DWORD", "data": 0 }
+      ]
+    },
+    {
+      "id": "FR5-OP-T02",
+      "name": "禁用客户体验改善计划(CEIP)",
+      "nameEn": "Disable CEIP",
+      "domain": "FR5",
+      "group": "隐私与遥测",
+      "description": "关闭客户体验改善计划上报。",
+      "level": "low",
+      "defaultOn": true,
+      "presets": ["safe", "standard", "aggressive"],
+      "order": 300,
+      "actions": [
+        { "type": "regWrite", "hive": "SOFTWARE", "key": "Policies\\Microsoft\\SQMClient\\Windows", "value": "CEIPEnable", "regType": "REG_DWORD", "data": 0 }
+      ]
+    },
+    {
+      "id": "FR5-OP-T05",
+      "name": "关闭广告 ID",
+      "nameEn": "Disable Advertising ID",
+      "domain": "FR5",
+      "group": "隐私与遥测",
+      "description": "禁用基于广告 ID 的个性化广告。",
+      "level": "low",
+      "defaultOn": true,
+      "presets": ["safe", "standard", "aggressive"],
+      "order": 300,
+      "actions": [
+        { "type": "regWrite", "hive": "SOFTWARE", "key": "Policies\\Microsoft\\Windows\\AdvertisingInfo", "value": "DisabledByGroupPolicy", "regType": "REG_DWORD", "data": 1 }
+      ]
+    },
+    {
+      "id": "FR5-OP-T20",
+      "name": "关闭休眠",
+      "nameEn": "Disable Hibernate",
+      "domain": "FR5",
+      "group": "系统行为",
+      "description": "关闭休眠以移除 hiberfil.sys 并节省磁盘空间。",
+      "level": "medium",
+      "defaultOn": false,
+      "presets": ["standard", "aggressive"],
+      "order": 310,
+      "actions": [
+        { "type": "regWrite", "hive": "SYSTEM", "key": "ControlSet001\\Control\\Power", "value": "HibernateEnabled", "regType": "REG_DWORD", "data": 0 },
+        { "type": "runCommand", "cmd": "powercfg", "args": ["-hibernate", "off"], "mode": "online", "ignoreExitCode": true }
+      ]
+    },
+    {
+      "id": "FR5-OP-T21",
+      "name": "关闭快速启动",
+      "nameEn": "Disable Fast Startup",
+      "domain": "FR5",
+      "group": "系统行为",
+      "description": "禁用休眠式快速启动。",
+      "level": "low",
+      "defaultOn": true,
+      "presets": ["safe", "standard", "aggressive"],
+      "order": 310,
+      "actions": [
+        { "type": "regWrite", "hive": "SYSTEM", "key": "ControlSet001\\Control\\Session Manager\\Power", "value": "HiberbootEnabled", "regType": "REG_DWORD", "data": 0 }
+      ]
+    },
+    {
+      "id": "FR5-OP-T29",
+      "name": "禁用系统日志与错误报告",
+      "nameEn": "Disable system logging and WER",
+      "domain": "FR5",
+      "group": "系统行为",
+      "description": "关闭 Windows 错误报告日志记录。",
+      "level": "low",
+      "defaultOn": true,
+      "presets": ["safe", "standard", "aggressive"],
+      "order": 310,
+      "actions": [
+        { "type": "regWrite", "hive": "SOFTWARE", "key": "Policies\\Microsoft\\Windows\\Windows Error Reporting", "value": "Disabled", "regType": "REG_DWORD", "data": 1 },
+        { "type": "regWrite", "hive": "NTUSER", "key": "Software\\Policies\\Microsoft\\Windows\\Windows Error Reporting", "value": "LoggingDisabled", "regType": "REG_DWORD", "data": 1 }
+      ]
+    },
+    {
+      "id": "FR5-OP-T40",
+      "name": "显示文件扩展名",
+      "nameEn": "Show file extensions",
+      "domain": "FR5",
+      "group": "资源管理器",
+      "description": "在资源管理器中显示已知文件类型的扩展名。",
+      "level": "low",
+      "defaultOn": true,
+      "presets": ["safe", "standard", "aggressive"],
+      "order": 320,
+      "actions": [
+        { "type": "regWrite", "hive": "NTUSER", "key": "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced", "value": "HideFileExt", "regType": "REG_DWORD", "data": 0 }
+      ]
+    },
+    {
+      "id": "FR5-OP-T45",
+      "name": "禁用 Win11 新右键菜单",
+      "nameEn": "Disable Windows 11 context menu",
+      "domain": "FR5",
+      "group": "资源管理器",
+      "description": "恢复经典右键菜单（新建 CLSID 键并留空默认值）。",
+      "level": "low",
+      "defaultOn": false,
+      "presets": ["standard", "aggressive"],
+      "order": 320,
+      "applicable": { "osMin": 22000 },
+      "actions": [
+        { "type": "regWrite", "hive": "NTUSER", "key": "Software\\Classes\\CLSID\\{86ca1aa0-34aa-4e8b-a509-50c905bae2a2}\\InprocServer32", "value": "", "regType": "REG_SZ", "data": "" }
+      ]
+    },
+    {
+      "id": "FR5-OP-T49",
+      "name": "任务栏搜索框显示方式",
+      "nameEn": "Taskbar search box mode",
+      "domain": "FR5",
+      "group": "任务栏",
+      "description": "控制任务栏搜索显示为隐藏/图标/搜索框。",
+      "level": "low",
+      "defaultOn": false,
+      "presets": ["standard", "aggressive"],
+      "order": 320,
+      "actions": [
+        { "type": "regWrite", "hive": "NTUSER", "key": "Software\\Microsoft\\Windows\\CurrentVersion\\Search", "value": "SearchboxTaskbarMode", "regType": "REG_DWORD", "data": 1 }
+      ]
+    },
+    {
+      "id": "FR5-OP-T60",
+      "name": "UAC 级别",
+      "nameEn": "UAC level",
+      "domain": "FR5",
+      "group": "安全",
+      "description": "设置用户账户控制提示级别（示例为“从不通知”）。",
+      "warning": "降低 UAC 级别会削弱系统安全防护。",
+      "level": "high",
+      "defaultOn": false,
+      "presets": ["aggressive"],
+      "order": 330,
+      "actions": [
+        { "type": "regWrite", "hive": "SOFTWARE", "key": "Microsoft\\Windows\\CurrentVersion\\Policies\\System", "value": "PromptOnSecureDesktop", "regType": "REG_DWORD", "data": 0 },
+        { "type": "regWrite", "hive": "SOFTWARE", "key": "Microsoft\\Windows\\CurrentVersion\\Policies\\System", "value": "ConsentPromptBehaviorAdmin", "regType": "REG_DWORD", "data": 0 },
+        { "type": "regWrite", "hive": "SOFTWARE", "key": "Microsoft\\Windows\\CurrentVersion\\Policies\\System", "value": "EnableLUA", "regType": "REG_DWORD", "data": 1 }
+      ]
+    },
+    {
+      "id": "FR5-OP-T81",
+      "name": "禁用 WfpDiag ETL 日志",
+      "nameEn": "Disable WFP diag ETL",
+      "domain": "FR5",
+      "group": "其他",
+      "description": "关闭 WFP 诊断事件收集。",
+      "level": "low",
+      "defaultOn": true,
+      "presets": ["safe", "standard", "aggressive"],
+      "order": 340,
+      "actions": [
+        { "type": "regWrite", "hive": "SYSTEM", "key": "ControlSet001\\Services\\BFE\\Parameters\\Policy\\Options", "value": "CollectNetEvents", "regType": "REG_DWORD", "data": 0 },
+        { "type": "runCommand", "cmd": "NETSH", "args": ["WFP", "SET", "OPTIONS", "NETEVENTS=OFF"], "mode": "online", "ignoreExitCode": true }
+      ]
+    },
+    {
+      "id": "FR5-OP-S01",
+      "name": "禁用程序兼容性助手",
+      "nameEn": "Disable Program Compatibility Assistant",
+      "domain": "FR5",
+      "group": "服务",
+      "description": "将程序兼容性助手服务 (PcaSvc) 设为禁用。",
+      "level": "low",
+      "defaultOn": false,
+      "presets": ["aggressive"],
+      "order": 350,
+      "actions": [
+        { "type": "setServiceStart", "name": "PcaSvc", "on": 4, "off": 2 }
+      ]
+    },
+    {
+      "id": "FR5-OP-S05",
+      "name": "禁用 Windows 搜索",
+      "nameEn": "Disable Windows Search",
+      "domain": "FR5",
+      "group": "服务",
+      "description": "禁用 Windows 搜索服务。",
+      "warning": "将降低搜索性能并影响部分商店应用。",
+      "level": "medium",
+      "defaultOn": false,
+      "presets": ["aggressive"],
+      "order": 350,
+      "actions": [
+        { "type": "setServiceStart", "name": "WSearch", "on": 4, "off": 5 }
+      ]
+    },
+    {
+      "id": "FR5-OP-S08",
+      "name": "禁用 NTFS 链接跟踪服务",
+      "nameEn": "Disable NTFS Link Tracking",
+      "domain": "FR5",
+      "group": "服务",
+      "description": "将分布式链接跟踪客户端 (TrkWks) 设为手动。",
+      "warning": "可能影响系统性能与快捷方式跟踪。",
+      "level": "medium",
+      "defaultOn": false,
+      "presets": ["aggressive"],
+      "order": 350,
+      "actions": [
+        { "type": "setServiceStart", "name": "TrkWks", "on": 3, "off": 2 }
+      ]
+    }
+  ]
+}

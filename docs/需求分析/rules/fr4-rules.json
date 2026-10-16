@@ -1,0 +1,182 @@
+{
+  "schemaVersion": "1.0",
+  "updated": "2026-10-16T00:00:00Z",
+  "source": "UUP2ISO FR4 精简规则库（对齐 Dism++ Data.xml 与 uup-converter 语义；包名以 Get-Packages/Get-ProvisionedAppxPackages 为准）",
+  "rules": [
+    {
+      "id": "FR4-SL-A01",
+      "name": "移除 Cortana",
+      "nameEn": "Remove Cortana",
+      "domain": "FR4",
+      "group": "Appx",
+      "description": "移除随系统预置的 Cortana 语音助手应用。",
+      "level": "medium",
+      "defaultOn": false,
+      "presets": ["standard", "aggressive"],
+      "order": 10,
+      "actions": [
+        { "type": "removeProvisionedAppx", "packageName": "Microsoft.549981C3F5F10", "match": "prefix" }
+      ]
+    },
+    {
+      "id": "FR4-SL-A02",
+      "name": "移除资讯/天气/搜索等推广应用",
+      "nameEn": "Remove Bing News/Weather/Search",
+      "domain": "FR4",
+      "group": "Appx",
+      "description": "移除 Bing 资讯、天气、搜索等娱乐与推广类应用。",
+      "level": "low",
+      "defaultOn": true,
+      "presets": ["safe", "standard", "aggressive"],
+      "order": 10,
+      "actions": [
+        { "type": "removeProvisionedAppx", "packageName": "Microsoft.BingNews", "match": "prefix" },
+        { "type": "removeProvisionedAppx", "packageName": "Microsoft.BingWeather", "match": "prefix" },
+        { "type": "removeProvisionedAppx", "packageName": "Microsoft.BingSearch", "match": "prefix" }
+      ]
+    },
+    {
+      "id": "FR4-SL-A19",
+      "name": "移除 Xbox 全家桶",
+      "nameEn": "Remove Xbox apps",
+      "domain": "FR4",
+      "group": "Appx",
+      "description": "移除 Xbox 相关应用与服务组件。",
+      "warning": "将影响 Game Pass 与 Xbox 游戏功能。",
+      "level": "medium",
+      "defaultOn": false,
+      "presets": ["standard", "aggressive"],
+      "order": 20,
+      "actions": [
+        { "type": "removeProvisionedAppx", "packageName": "^Microsoft\\.Xbox", "match": "regex" }
+      ]
+    },
+    {
+      "id": "FR4-SL-P01",
+      "name": "移除 Microsoft Defender 防病毒",
+      "nameEn": "Remove Microsoft Defender",
+      "domain": "FR4",
+      "group": "Components",
+      "description": "移除 Defender 防病毒组件与能力。",
+      "warning": "系统将失去内置防病毒保护，且移除后不可恢复。",
+      "level": "high",
+      "defaultOn": false,
+      "presets": ["aggressive"],
+      "order": 100,
+      "applicable": { "osMin": 22000, "imageFlags": ["offline"] },
+      "actions": [
+        { "type": "removeCapability", "name": "Windows-Defender" },
+        { "type": "removePackage", "packageName": "Microsoft-Windows-Security-SPP", "match": "prefix", "removePayload": false }
+      ]
+    },
+    {
+      "id": "FR4-SL-P03",
+      "name": "移除 OneDrive",
+      "nameEn": "Remove OneDrive",
+      "domain": "FR4",
+      "group": "Components",
+      "description": "移除 OneDrive 同步客户端并取消其计划任务与启动项。",
+      "level": "medium",
+      "defaultOn": false,
+      "presets": ["aggressive"],
+      "order": 110,
+      "actions": [
+        { "type": "deletePath", "path": "%SystemRoot%\\System32\\OneDriveSetup.exe" },
+        { "type": "runCommand", "cmd": "schtasks", "args": ["/Delete", "/TN", "\\Microsoft\\Windows\\OneDrive Standalone Update Task", "/F"], "mode": "online", "ignoreExitCode": true }
+      ]
+    },
+    {
+      "id": "FR4-SL-P13",
+      "name": "移除适用于 Linux 的 Windows 子系统",
+      "nameEn": "Remove WSL",
+      "domain": "FR4",
+      "group": "Capability",
+      "description": "移除 WSL 可选功能。",
+      "level": "low",
+      "defaultOn": false,
+      "presets": ["standard", "aggressive"],
+      "order": 90,
+      "actions": [
+        { "type": "removeCapability", "name": "Microsoft-Windows-Subsystem-Linux" }
+      ]
+    },
+    {
+      "id": "FR4-SL-C01",
+      "name": "移除 OpenSSH 客户端",
+      "nameEn": "Remove OpenSSH Client",
+      "domain": "FR4",
+      "group": "Capability",
+      "description": "移除 OpenSSH 客户端能力。",
+      "level": "low",
+      "defaultOn": false,
+      "presets": ["standard", "aggressive"],
+      "order": 95,
+      "actions": [
+        { "type": "removeCapability", "name": "OpenSSH.Client" }
+      ]
+    },
+    {
+      "id": "FR4-SL-H01",
+      "name": "绕过 TPM 检查",
+      "nameEn": "Bypass TPM Check",
+      "domain": "FR4",
+      "group": "Hardware",
+      "description": "安装时跳过 TPM 2.0 要求。",
+      "level": "low",
+      "defaultOn": false,
+      "presets": ["standard", "aggressive"],
+      "order": 5,
+      "applicable": { "osMin": 22000 },
+      "actions": [
+        { "type": "regWrite", "hive": "SYSTEM", "key": "Setup\\LabConfig", "value": "BypassTPMCheck", "regType": "REG_DWORD", "data": 1 }
+      ]
+    },
+    {
+      "id": "FR4-SL-H02",
+      "name": "绕过 Secure Boot 检查",
+      "nameEn": "Bypass Secure Boot Check",
+      "domain": "FR4",
+      "group": "Hardware",
+      "description": "安装时跳过安全启动要求。",
+      "level": "low",
+      "defaultOn": false,
+      "presets": ["standard", "aggressive"],
+      "order": 5,
+      "applicable": { "osMin": 22000 },
+      "actions": [
+        { "type": "regWrite", "hive": "SYSTEM", "key": "Setup\\LabConfig", "value": "BypassSecureBootCheck", "regType": "REG_DWORD", "data": 1 }
+      ]
+    },
+    {
+      "id": "FR4-SL-H06",
+      "name": "允许在不支持硬件上升级",
+      "nameEn": "Allow upgrades with unsupported TPM or CPU",
+      "domain": "FR4",
+      "group": "Hardware",
+      "description": "允许在不满足 TPM/CPU 要求的设备上执行大版本升级。",
+      "level": "medium",
+      "defaultOn": false,
+      "presets": ["standard", "aggressive"],
+      "order": 6,
+      "applicable": { "osMin": 22000 },
+      "actions": [
+        { "type": "regWrite", "hive": "SYSTEM", "key": "Setup\\MoSetup", "value": "AllowUpgradesWithUnsupportedTPMOrCPU", "regType": "REG_DWORD", "data": 1 }
+      ]
+    },
+    {
+      "id": "FR4-SL-H07",
+      "name": "替换 appraiserres.dll",
+      "nameEn": "Replace appraiserres.dll",
+      "domain": "FR4",
+      "group": "Hardware",
+      "description": "用目标构建自身的 appraiserres.dll 替换安装介质中的兼容性评估组件。",
+      "level": "medium",
+      "defaultOn": false,
+      "presets": ["aggressive"],
+      "order": 7,
+      "actions": [
+        { "type": "runCommand", "cmd": "cmd.exe", "args": ["/c", "copy", "/y", "%SystemRoot%\\System32\\appraiserres.dll", "%ISO%\\sources\\appraiserres.dll"], "mode": "offline", "ignoreExitCode": true }
+      ]
+    }
+  ]
+}

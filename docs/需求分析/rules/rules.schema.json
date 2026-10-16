@@ -1,0 +1,192 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://uup2iso.local/schema/rules.schema.json",
+  "title": "UUP2ISO Rule Library",
+  "description": "FR4 精简与 FR5 系统优化的外置规则库。字段语义对齐 Dism++ Data.xml（General/RegWrite/RegDelete/RegMove/SetServiceStart/Custom ProcName）。",
+  "type": "object",
+  "required": ["schemaVersion", "rules"],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": { "type": "string", "const": "1.0" },
+    "updated": { "type": "string", "format": "date-time" },
+    "source": { "type": "string", "description": "规则来源说明，如 Dism++ Data.xml 版本" },
+    "rules": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/rule" }
+    }
+  },
+  "definitions": {
+    "riskLevel": {
+      "type": "string",
+      "enum": ["low", "medium", "high"],
+      "description": "风险等级；high 项默认关闭并需显式确认"
+    },
+    "hive": {
+      "type": "string",
+      "enum": ["SOFTWARE", "SYSTEM", "DEFAULT", "NTUSER", "SAM", "SECURITY", "DRIVERS"],
+      "description": "离线注册表逻辑 hive：SOFTWARE/SYSTEM/DEFAULT/DRIVERS 来自 config，NTUSER 来自 Users\\Default\\NTUSER.DAT，SAM/SECURITY 同理"
+    },
+    "regType": {
+      "type": "string",
+      "enum": ["REG_DWORD", "REG_QWORD", "REG_SZ", "REG_EXPAND_SZ", "REG_BINARY", "REG_MULTI_SZ"]
+    },
+    "applicable": {
+      "type": "object",
+      "description": "生效条件；全部满足才应用。均为可选。",
+      "additionalProperties": false,
+      "properties": {
+        "osMin": { "type": "integer", "description": "最低构建号，如 22000" },
+        "osMax": { "type": "integer", "description": "最高构建号（含）" },
+        "arch": { "type": "array", "items": { "type": "string", "enum": ["amd64", "arm64"] } },
+        "editions": { "type": "array", "items": { "type": "string" }, "description": "适用 edition 白名单，如 Professional/Enterprise" },
+        "imageFlags": { "type": "array", "items": { "type": "string", "enum": ["online", "offline", "wim", "esd"] } },
+        "regExist": { "$ref": "#/definitions/regRef" },
+        "regNotExist": { "$ref": "#/definitions/regRef" },
+        "fileExist": { "type": "array", "items": { "type": "string" }, "description": "映像内相对路径（相对 %SystemRoot% 或绝对）" },
+        "fileNotExist": { "type": "array", "items": { "type": "string" } },
+        "hasPackage": { "type": "array", "items": { "type": "string" }, "description": "存在指定包时才生效（包名匹配）" }
+      }
+    },
+    "regRef": {
+      "type": "object",
+      "required": ["hive", "key"],
+      "additionalProperties": false,
+      "properties": {
+        "hive": { "$ref": "#/definitions/hive" },
+        "key": { "type": "string" },
+        "value": { "type": "string", "description": "缺省表示判断键是否存在" }
+      }
+    },
+    "action": {
+      "type": "object",
+      "required": ["type"],
+      "properties": { "type": { "type": "string" } },
+      "oneOf": [
+        {
+          "properties": {
+            "type": { "const": "regWrite" },
+            "hive": { "$ref": "#/definitions/hive" },
+            "key": { "type": "string" },
+            "value": { "type": "string" },
+            "regType": { "$ref": "#/definitions/regType" },
+            "data": { "type": ["string", "integer", "array"], "description": "REG_BINARY 用十六进制字符串；REG_MULTI_SZ 用数组" }
+          },
+          "required": ["type", "hive", "key", "value", "regType", "data"],
+          "additionalProperties": false
+        },
+        {
+          "properties": {
+            "type": { "const": "regDelete" },
+            "hive": { "$ref": "#/definitions/hive" },
+            "key": { "type": "string" },
+            "value": { "type": "string", "description": "缺省表示删除整个键" },
+            "skipError": { "type": "boolean", "default": true }
+          },
+          "required": ["type", "hive", "key"],
+          "additionalProperties": false
+        },
+        {
+          "properties": {
+            "type": { "const": "regMove" },
+            "hive": { "$ref": "#/definitions/hive" },
+            "key": { "type": "string" },
+            "from": { "type": "string" },
+            "to": { "type": "string" },
+            "copy": { "type": "boolean", "default": false },
+            "toKey": { "type": "string", "description": "目标键，缺省同 key" }
+          },
+          "required": ["type", "hive", "key", "from", "to"],
+          "additionalProperties": false
+        },
+        {
+          "properties": {
+            "type": { "const": "setServiceStart" },
+            "name": { "type": "string", "description": "服务名" },
+            "on": { "type": "integer", "enum": [2, 3, 4, 5], "description": "启用时 Start：2=自动 3=手动 4=禁用 5=延迟自动" },
+            "off": { "type": "integer", "enum": [2, 3, 4, 5], "description": "关闭时恢复的 Start" }
+          },
+          "required": ["type", "name", "on"],
+          "additionalProperties": false
+        },
+        {
+          "properties": {
+            "type": { "const": "removeProvisionedAppx" },
+            "packageName": { "type": "string" },
+            "match": { "type": "string", "enum": ["exact", "prefix", "regex"], "default": "exact" }
+          },
+          "required": ["type", "packageName"],
+          "additionalProperties": false
+        },
+        {
+          "properties": {
+            "type": { "const": "removePackage" },
+            "packageName": { "type": "string" },
+            "match": { "type": "string", "enum": ["exact", "prefix", "regex"], "default": "prefix" },
+            "removePayload": { "type": "boolean", "default": true }
+          },
+          "required": ["type", "packageName"],
+          "additionalProperties": false
+        },
+        {
+          "properties": {
+            "type": { "const": "removeCapability" },
+            "name": { "type": "string", "description": "能力名，不含版本后缀" }
+          },
+          "required": ["type", "name"],
+          "additionalProperties": false
+        },
+        {
+          "properties": {
+            "type": { "const": "deletePath" },
+            "path": { "type": "string", "description": "支持 %SystemRoot%/%SystemDrive%/%UserProfile% 等变量与通配符" },
+            "recurse": { "type": "boolean", "default": true },
+            "skipError": { "type": "boolean", "default": true }
+          },
+          "required": ["type", "path"],
+          "additionalProperties": false
+        },
+        {
+          "properties": {
+            "type": { "const": "runCommand" },
+            "cmd": { "type": "string" },
+            "args": { "type": "array", "items": { "type": "string" } },
+            "mode": { "type": "string", "enum": ["offline", "online", "firstBoot"], "default": "offline", "description": "online 仅在在线系统执行；firstBoot 写入首次启动脚本" },
+            "ignoreExitCode": { "type": "boolean", "default": true }
+          },
+          "required": ["type", "cmd"],
+          "additionalProperties": false
+        },
+        {
+          "properties": {
+            "type": { "const": "procName" },
+            "name": { "type": "string", "description": "Dism++ Custom ProcName 例程名，用于映射本工具内置实现" }
+          },
+          "required": ["type", "name"],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "rule": {
+      "type": "object",
+      "required": ["id", "name", "domain", "group", "level", "actions"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "pattern": "^(FR4|FR5)-[A-Z0-9-]+$", "description": "与文档编号一致，如 FR4-SL-A01 / FR5-OP-T40" },
+        "name": { "type": "string" },
+        "nameEn": { "type": "string", "description": "英文名，来自 Dism++ Languages\\en.xml" },
+        "domain": { "type": "string", "enum": ["FR4", "FR5"] },
+        "group": { "type": "string", "description": "分组，如 Appx/Components/Capability/Hardware 或 空间回收/隐私/资源管理器/服务/CompactOS" },
+        "description": { "type": "string" },
+        "warning": { "type": "string" },
+        "level": { "$ref": "#/definitions/riskLevel" },
+        "defaultOn": { "type": "boolean", "default": false, "description": "是否属于各预设默认勾选" },
+        "presets": { "type": "array", "items": { "type": "string", "enum": ["safe", "standard", "aggressive"] } },
+        "requires": { "type": "array", "items": { "type": "string" }, "description": "依赖的规则 id（先应用）" },
+        "conflicts": { "type": "array", "items": { "type": "string" }, "description": "互斥规则 id" },
+        "order": { "type": "integer", "description": "执行顺序，越小越先" },
+        "applicable": { "$ref": "#/definitions/applicable" },
+        "actions": { "type": "array", "minItems": 1, "items": { "$ref": "#/definitions/action" } }
+      }
+    }
+  }
+}

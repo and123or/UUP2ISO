@@ -31,6 +31,8 @@
 
 ### 1.3 实现方式图例
 
+> 规则执行上下文必须区分为 `offline`、`online` 或 `firstBoot`。离线任务不得将仅在线可用的规则报告为成功。
+
 | 记号 | 含义 |
 |---|---|
 | `DISM /Image:$Mount ...` | 离线映像服务（系统内置） |
@@ -64,7 +66,7 @@ reg unload HKLM\OFFLINE_SW & reg unload HKLM\OFFLINE_SY & reg unload HKLM\OFFLIN
 | CV-03 | 组件清理 | 0/1，默认 1 | 集成更新后清理被取代组件并增量压缩（缩短后续体积） | `DISM /Image:$Mount /Cleanup-Image /StartComponentCleanup` | 低 | `Cleanup` |
 | CV-04 | 重置基础 | 0/1，默认 0 | 在清理基础上进一步移除被取代组件（体积更小） | `DISM /Cleanup-Image /StartComponentCleanup /ResetBase` | 中（不可卸载旧更新） | `ResetBase` |
 | CV-05 | 启用 .NET 3.5 | 0/1，默认 0 | 离线启用 NetFx3 功能 | `DISM /Enable-Feature /FeatureName:NetFx3 /All /LimitAccess /Source:$Mount\sources\sxs` | 低 | `NetFx3` |
-| CV-06 | 启动虚拟版本 | 0/1，默认 0 | 转换完成后自动创建虚拟版本（见 §2.4） | 调用虚拟版本流程（CV-P1~P8） | 低 | `StartVirtual` |
+| CV-06 | 启动虚拟版本 | 0/1，默认 0 | 实验性能力；仅对完成构建级验证的版本创建虚拟版本 | 仅调用已验证的 DISM/转换流程，不得仅改注册表伪造 edition | 高 | `StartVirtual` |
 | CV-07 | 转 ESD | 0/1，默认 0 | 将 install.wim 转为 install.esd（LZMS recovery 压缩） | `DISM /Export-Image /Compress:recovery` | 低（耗时/占资源） | `wim2esd` |
 | CV-08 | 拆分 WIM | 0/1，默认 0 | 将 install.wim 拆分为 install.swm（FAT32 友好） | `DISM /Export-Image /FileSize:4096` | 低（<4G 自动跳过） | `wim2swm` |
 | CV-09 | 跳过 ISO | 0/1，默认 0 | 仅输出 wim/esd，不封装 ISO | 跳过 oscdimg 阶段 | 低 | `SkipISO` |
@@ -87,7 +89,7 @@ reg unload HKLM\OFFLINE_SW & reg unload HKLM\OFFLINE_SY & reg unload HKLM\OFFLIN
 | CV-26 | 压缩类型 | none/XPRESS/LZX/LZMS | WIM/ESD 压缩算法 | wimlib `--compress=` 或 DISM `/Compress:` | 低 | — |
 | CV-27 | edition 保留/裁剪 | 列表 | 从 AIO 中保留或剔除指定 edition | `DISM /Delete-Image` 或仅导出目标 index | 中 | 安装向导选择 |
 | CV-28 | ISO 卷标 | 字符串 | ISO 卷标（默认派生自 build 与语言） | `oscdimg -l<label>` | 低 | — |
-| CV-29 | ESD 解密 | 0/1，默认 0 | 对加密 ESD 载入解密键后再处理 | 内置/载入 `ESDDecryptKey` | 低 | — |
+| CV-29 | ESD 解密 | 0/1，默认 0 | 后续实验性能力；未完成固定构建验证时拒绝处理并说明原因 | 仅使用经过许可和校验的解密适配器 | 高 | — |
 
 ### 2.2 输出与产物（CV-01 / CV-07 / CV-08 / CV-09 / CV-26 / CV-28）
 
@@ -119,7 +121,7 @@ reg unload HKLM\OFFLINE_SW & reg unload HKLM\OFFLINE_SY & reg unload HKLM\OFFLIN
 
 ### 2.4 版本与虚拟版本（CV-06 / CV-27 / CV-P1~P8）
 
-虚拟版本=在同一映像基础数据上，通过改写 edition 标识生成 Pro/Education/Enterprise/Workstation 等版本，避免重复构建。
+虚拟版本是实验性能力，不等同于修改注册表中的 edition 标识。只有在固定 Windows 构建上完成安装、功能完整性和 DISM 校验后，才允许开放；MVP 不包含该能力。
 
 | 编号 | 子项 | 取值/默认 | 描述 | 实现方式 | uup |
 |---|---|---|---|---|---|
@@ -132,7 +134,7 @@ reg unload HKLM\OFFLINE_SW & reg unload HKLM\OFFLINE_SY & reg unload HKLM\OFFLIN
 | CV-P7 | 跳过 ISO | 0/1，默认 0 | 虚拟版本仅输出映像 | 跳过封装 | `vSkipISO` |
 | CV-P8 | 虚拟版本列表 | 列表，默认空 | 要创建的 edition（如 `Professional`、`Enterprise`） | 逐个改写 edition 并导出 | `vAutoEditions` |
 
-**实现要点**：改写 `HKLM\OFFLINE_SW\Microsoft\Windows NT\CurrentVersion\EditionID`/`ProductName`/`InstallationType` 等键后重新导出并标注 edition 名称；保留原 index 可逆。
+**实现约束**：不得仅通过修改 `EditionID`、`ProductName` 或 `InstallationType` 伪造版本。实现必须使用已验证的官方映像转换机制或等价适配器，并在固定构建样本上验证 `DISM /Get-WimInfo`、安装和功能完整性。
 
 ### 2.5 组件/功能与 WinRE（CV-05 / CV-10 / CV-11 / CV-18 / CV-22~CV-25）
 
@@ -312,7 +314,7 @@ DISM /Image:$Mount /Remove-WindowsCapability /Name:<Capability.Name>~~~~0.0.1.0
 
 四类：**空间回收**（`OP-C`）、**注册表 tweak**（`OP-T`，按分类）、**服务优化**（`OP-S`）、**CompactOS/合并**（`OP-K`）。通用前置：挂载映像 + 离线注册表（§1.4）。风险分 `低/中/高`，`高` 项默认关闭。
 
-> 规则可迁移自 Dism++ `Data.xml`：其清理项用 `<General RootPath>`（删除路径）+ `<Custom ProcName>`（内置例程）；优化项用 `<RegWrite>/<RegDelete>/<RegMove>/<SetServiceStart>`。本工具以等价注册表/命令实现，规则库可外置为 JSON 便于更新。
+> 规则可迁移自 Dism++ `Data.xml`：其清理项用 `<General RootPath>`（删除路径）+ `<Custom ProcName>`（内置例程）；优化项用 `<RegWrite>/<RegDelete>/<RegMove>/<SetServiceStart>`。本工具以等价注册表/命令实现，规则库采用版本化 JSON；MVP/M2 仅使用内置规则，后续只支持经 schema、版本和完整性校验的手动规则包导入。
 
 ### 4.2 空间回收（`OP-C`）
 
@@ -345,7 +347,7 @@ DISM /Image:$Mount /Remove-WindowsCapability /Name:<Capability.Name>~~~~0.0.1.0
 | OP-C25 | CompactOS（较慢） | 对只读文件做压缩 | 见 OP-K01 | 中 |
 | OP-C26 | 硬链接合并（较慢） | 合并硬链接文件 | 专用例程 | 中 |
 
-> 空间回收在**离线映像**上仅对文件级路径与组件存储有意义；在线专属例程（事件日志、还原点、传递优化、Appx 修复等）在离线模式下自动跳过并记录。
+> 空间回收在**离线映像**上仅对文件级路径与组件存储有意义；在线专属例程（事件日志、还原点、传递优化、Appx 修复等）必须标记为 `online`，离线模式下不展示为可执行项。
 
 ### 4.3 注册表 tweak（`OP-T`，offline 注册表写入）
 
@@ -517,8 +519,8 @@ FR3 各选项与 `[convert-UUP]` / `[Store_Apps]` / `[create_virtual_editions]` 
 
 ## 7. 验收标准
 
-1. **FR3**：相同输入下，各选项组合能产出与 `uup-converter-wimlib` 等价的 wim/esd/ISO；`ConvertConfig.ini` 可双向导入导出。
+1. **FR3**：在已声明支持的固定构建样本上，各选项组合能产出与 `uup-converter-wimlib` 等价的 wim/esd/ISO；`ConvertConfig.ini` 可双向导入导出。未验证的虚拟版本、加密 ESD 和多分卷输入必须拒绝或标记为实验性。
 2. **FR4**：安全精简预设产物可在物理机与虚拟机完成安装并进入桌面；依赖冲突组合被阻断或提示；`ScanHealth` 通过。
-3. **FR5**：推荐优化预设产物安装后，休眠关闭、遥测相关项生效（离线注册表可验证）；空间回收后 WinSxS 体积下降且系统可正常启动与更新；高风险项默认关闭且启用被记录。
+3. **FR5**：推荐离线优化预设产物安装后，休眠关闭、遥测相关项生效（离线注册表可验证）；空间回收后 WinSxS 体积下降且系统可正常启动与更新；在线专属规则不计入离线验收；高风险项默认关闭且启用被记录。
 4. **风险项**：所有 `高` 风险项在 GUI/CLI 均需显式确认，并在日志中留痕。
 5. **可扩展**：FR4/FR5 规则库可外置更新而无需改动程序；新增项遵循 §6.2 字段约定。

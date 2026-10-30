@@ -166,6 +166,87 @@
         }
       ]
     },
+    "verify": {
+      "type": "object",
+      "description": "规则生效验证；高风险项必填（由加载器做语义校验，JSON Schema 无法表达）",
+      "required": ["type"],
+      "oneOf": [
+        {
+          "properties": {
+            "type": { "const": "regValue" },
+            "hive": { "$ref": "#/definitions/hive" },
+            "key": { "type": "string" },
+            "value": { "type": "string" },
+            "expected": { "type": ["string", "integer", "array"] }
+          },
+          "required": ["type", "hive", "key", "value", "expected"],
+          "additionalProperties": false
+        },
+        {
+          "properties": {
+            "type": { "const": "regAbsent" },
+            "hive": { "$ref": "#/definitions/hive" },
+            "key": { "type": "string" },
+            "value": { "type": "string", "description": "缺省表示判断整个键不存在" }
+          },
+          "required": ["type", "hive", "key"],
+          "additionalProperties": false
+        },
+        {
+          "properties": {
+            "type": { "const": "packageAbsent" },
+            "packageName": { "type": "string" },
+            "match": { "type": "string", "enum": ["exact", "prefix", "regex"], "default": "prefix" }
+          },
+          "required": ["type", "packageName"],
+          "additionalProperties": false
+        },
+        {
+          "properties": {
+            "type": { "const": "appxAbsent" },
+            "packageName": { "type": "string" },
+            "match": { "type": "string", "enum": ["exact", "prefix", "regex"], "default": "exact" }
+          },
+          "required": ["type", "packageName"],
+          "additionalProperties": false
+        },
+        {
+          "properties": {
+            "type": { "const": "capabilityAbsent" },
+            "name": { "type": "string" }
+          },
+          "required": ["type", "name"],
+          "additionalProperties": false
+        },
+        {
+          "properties": {
+            "type": { "const": "fileAbsent" },
+            "path": { "type": "string" }
+          },
+          "required": ["type", "path"],
+          "additionalProperties": false
+        },
+        {
+          "properties": {
+            "type": { "const": "serviceStart" },
+            "name": { "type": "string" },
+            "expected": { "type": "integer", "enum": [2, 3, 4, 5] }
+          },
+          "required": ["type", "name", "expected"],
+          "additionalProperties": false
+        },
+        {
+          "properties": {
+            "type": { "const": "commandExit" },
+            "cmd": { "type": "string" },
+            "args": { "type": "array", "items": { "type": "string" } },
+            "expectedExitCode": { "type": "integer", "default": 0 }
+          },
+          "required": ["type", "cmd"],
+          "additionalProperties": false
+        }
+      ]
+    },
     "rule": {
       "type": "object",
       "required": ["id", "name", "domain", "group", "level", "actions"],
@@ -185,7 +266,18 @@
         "conflicts": { "type": "array", "items": { "type": "string" }, "description": "互斥规则 id" },
         "order": { "type": "integer", "description": "执行顺序，越小越先" },
         "applicable": { "$ref": "#/definitions/applicable" },
-        "actions": { "type": "array", "minItems": 1, "items": { "$ref": "#/definitions/action" } }
+        "actions": { "type": "array", "minItems": 1, "items": { "$ref": "#/definitions/action" } },
+        "context": {
+          "type": "array",
+          "items": { "type": "string", "enum": ["offline", "firstBoot"] },
+          "description": "可执行上下文；缺省取 actions[].mode 的并集。online 规则由本工具统一跳过"
+        },
+        "verify": { "$ref": "#/definitions/verify" },
+        "reversible": { "type": "boolean", "description": "是否可逆；缺省按 false 处理（保守）" },
+        "recovery": { "type": "string", "description": "不可逆项的影响面与恢复方式（人可读）；level=high 且不可逆时必填" },
+        "params": { "type": "object", "description": "参数化覆盖，键由规则自行定义" },
+        "minEngine": { "type": "string", "description": "最低程序版本，如 1.2.0；低于此版本时跳过该规则" },
+        "estimatedBytes": { "type": "integer", "minimum": 0, "description": "预估释放空间（字节），FR5 展示用" }
       }
     }
   }

@@ -1,7 +1,7 @@
 # UUP2ISO FR3–FR5 详细需求
 
-> 版本：v0.1（草案）
-> 依据：`docs/需求分析.md`（FR3 转换 / FR4 精简 / FR5 系统优化）
+> 版本：v0.3（草案）
+> 依据：`docs/需求分析.md`（FR3 转换 / FR4 精简 / FR5 系统优化）、`docs/日志规范.md`（§5.2 进度不入日志）
 > 参考实现：**FR3** 对齐 `uup-converter-wimlib`（`ConvertConfig.ini`）；**FR5** 对齐 **Dism++**（`Data.xml` 规则库）
 > 交付物：逐选项/逐项的**描述**与**实现方式**（可指导编码）
 
@@ -177,6 +177,8 @@ DISM /Image:$Mount /Add-Driver /Driver:<Drv_Source>\ALL /Recurse
 
 ## 3. FR4 精简
 
+> **执行机制不在本节**：规则的上下文判定、依赖矩阵、冲突阻断、逐条验证与可逆性记录见 `精简与优化规则规范.md`；本节只定义「有哪些规则、各自做什么」。
+
 ### 3.1 总览
 
 精简分四类：**Appx/UWP 应用**（`SL-A`）、**可选组件/包**（`SL-P`）、**Windows 能力/功能**（`SL-C`）、**安装硬件检查绕过**（`SL-H`）。通用前置：挂载映像（`DISM /Mount-Image` 或 `wimlib` 挂载）。
@@ -309,6 +311,8 @@ DISM /Image:$Mount /Remove-WindowsCapability /Name:<Capability.Name>~~~~0.0.1.0
 ---
 
 ## 4. FR5 系统优化（对齐 Dism++）
+
+> **执行机制不在本节**：同上，见 `精简与优化规则规范.md`（含 `verify` 验证类型、高风险可逆性要求、上下文不满足时的跳过语义）。
 
 ### 4.1 总览
 
@@ -489,7 +493,7 @@ DISM /Unmount-Image /MountDir:$Mount /Commit
 
 ### 5.2 命令执行与进度
 
-所有外部命令经 `ProcessRunner` 执行，解析 DISM 百分比、wimlib `--progress`、oscdimg 输出行，映射为 FR9 的阶段进度；原始输出进入日志（含返回码）。
+所有外部命令经 `ProcessRunner` 执行，解析 DISM 百分比、wimlib `--progress`、oscdimg 输出行，映射为 FR9 的阶段进度；**关键输出**（工具启动/结束、返回码、警告与错误、产出文件与大小）进入日志，**进度类行（百分比/进度条/速度）只显示不落盘**（见 `日志规范.md` §5.2）。
 
 ### 5.3 危险项确认与回滚
 
@@ -510,9 +514,9 @@ FR3 各选项与 `[convert-UUP]` / `[Store_Apps]` / `[create_virtual_editions]` 
 - FR4 精简清单（Appx/包/能力）与 FR5 优化规则库外置为 JSON，字段对齐 Dism++ `Data.xml` 语义（`General RootPath` / `RegWrite` / `RegDelete` / `RegMove` / `SetServiceStart` / `RunCommand`），支持在线更新规则。
 - 规则项字段：`id`、`name`、`description`、`warning`、`level`(风险)、`applicable`(OSVersion/ImageFlags/RegExist/FileExist)、`actions[]`。
 - 交付文件：
-  - `docs/rules/rules.schema.json`：JSON Schema（draft-07），定义规则与动作（`regWrite`/`regDelete`/`regMove`/`setServiceStart`/`removeProvisionedAppx`/`removePackage`/`removeCapability`/`deletePath`/`runCommand`/`procName`）。
-  - `docs/rules/fr4-rules.json`：FR4 精简规则示例（Appx/组件/能力/硬件）。
-  - `docs/rules/fr5-rules.json`：FR5 系统优化规则示例（空间回收/tweak/服务/CompactOS）。
+  - `docs/需求分析/rules/rules.schema.json`：JSON Schema（draft-07），定义规则与动作（`regWrite`/`regDelete`/`regMove`/`setServiceStart`/`removeProvisionedAppx`/`removePackage`/`removeCapability`/`deletePath`/`runCommand`/`procName`）。构建时复制到程序目录 `rules/`。
+  - `docs/需求分析/rules/fr4-rules.json`：FR4 精简规则示例（Appx/组件/能力/硬件）。
+  - `docs/需求分析/rules/fr5-rules.json`：FR5 系统优化规则示例（空间回收/tweak/服务/CompactOS）。
   - 动作语义：`hive` 使用逻辑名（SOFTWARE/SYSTEM/DEFAULT/NTUSER/DRIVERS）由运行时映射到离线 hive；`runCommand.mode` 取 `offline`/`online`/`firstBoot`；`procName` 映射本工具内置例程（如 `DismComponentCleanup`/`DismCompactOs`）。
 
 ---

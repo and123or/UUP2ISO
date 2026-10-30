@@ -1,0 +1,54 @@
+## UUP2ISO
+
+# Build output
+bin/
+obj/
+[Dd]ebug/
+[Rr]elease/
+artifacts/
+publish/
+*.user
+*.suo
+
+# Python (工作空间虚拟环境，必须忽略、不得入库)
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+dist/
+build/
+
+# Rider / VS
+.idea/
+.vs/
+*.DotSettings.user
+
+# Test results
+[Tt]est[Rr]esults/
+*.trx
+*.coverage
+coverage*.json
+coverage*.xml
+
+# Tooling
+tools/aria2c.exe
+tools/tmp/
+
+# Local runtime data (never commit)
+%LocalAppData%/
+logs/
+*.log
+.workbuddy/
+
+# OS
+Thumbs.db
+desktop.ini
+
+# NuGet
+*.nupkg

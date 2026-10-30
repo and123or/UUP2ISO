@@ -1,9 +1,9 @@
 # UUP2ISO GUI 界面与框架设计
 
-> 版本：v0.1（草案）
+> 版本：v0.8（草案）
 > 依据：`docs/需求分析.md`（FR0–FR10）
 > 配套：`docs/软件架构图.md`、`docs/软件流程图.md`
-> 技术栈：C# / .NET 8，Windows 10/11 x64
+> 技术栈：Python 3.12+ / PySide6，Windows 10/11 x64
 > 交付物：GUI 界面规格 + 软件框架设计（可指导编码）
 
 ---
@@ -12,8 +12,9 @@
 
 本文档在需求分析基础上，给出 UUP2ISO 的**界面设计**与**软件框架设计**，覆盖：
 
-- GUI 技术选型（解决需求文档中 WPF vs WinUI 3 的开放问题）；
-- 分层架构、解决方案与项目结构、核心接口；
+- GUI 技术选型（Python GUI 框架对比与决策：PySide6 + PyQt-Fluent-Widgets）；
+- 开发与运行环境约定（工作空间虚拟环境 `.venv`，强制）；
+- 分层架构、工程结构与包结构、核心接口；
 - 流水线/任务模型（多入口、可裁剪阶段、可中断续跑）；
 - 各界面（页面）的布局、交互与线框；
 - GUI 与 CLI 的复用关系；
@@ -27,7 +28,7 @@
 
 1. **对齐需求**：GUI 的每一项能力都能映射到 FR0–FR10，无孤立功能。
 2. **多入口优先**：向导首页先选输入源（A 在线 / B 本地 UUP 文件夹 / C 现成 ISO/WIM/ESD），后续步骤**自动裁剪**（FR0）。
-3. **双档用户**：默认「向导式」面向普通用户；「高级」可跳步、编辑任务配置、直连 CLI 参数。
+3. **双档用户**：默认「向导式」面向普通用户；「高级」可跳步、编辑任务配置，并把配置导出给 CLI 复用。
 4. **长任务可控**：下载/转换/精简等长任务支持进度、取消、失败定位、断点续跑（非功能・健壮性）。
 5. **单一内核**：GUI 与 CLI 共享同一 Core/Application，行为一致（FR9 验收）。
 6. **安全与合规**：危险操作（高风险优化项、永久删除）明确二次确认；不内置激活/绕过授权逻辑。
@@ -37,42 +38,51 @@
 
 ## 3. 技术选型与决策
 
-### 3.1 GUI 框架：WPF vs WinUI 3
+### 3.1 GUI 框架：Tkinter vs PySide6 vs wxPython
 
-| 维度 | WPF（.NET 8） | WinUI 3 / Windows App SDK |
-|---|---|---|
-| 成熟度/稳定性 | 高，长期支持 | 中，迭代中仍存在边界问题 |
-| 部署 | 单文件/xcopy 即可，无需额外运行时 | 需 Windows App SDK 运行时/Bootstrapper 或 MSIX |
-| 管理员权限运行 | 直接支持（提升清单） | 非打包提升运行较绕 |
-| 现代化外观 | 需 Fluent 控件库 | 原生 Fluent |
-| 生态/控件库 | 丰富（WPF-UI / HandyControl / MahApps） | 较少 |
-| 与外部进程/文件密集操作 | 成熟 | 可行但复杂度高 |
-| 中文生态/资料 | 丰富 | 一般 |
+| 维度 | Tkinter（内置） | PySide6（Qt 6，LGPL） | wxPython |
+|---|---|---|---|
+| 成熟度/稳定性 | 高但控件原始 | 高，Qt 官方长期维护 | 中，迭代较慢 |
+| 现代化外观 | 差，需大量自绘 | 好；有 Fluent 风格控件库 | 一般 |
+| Fluent 控件生态 | 无 | **PyQt-Fluent-Widgets**（导航视图、卡片、亮暗主题、中文文档） | 少 |
+| 管理员权限运行 | 直接支持 | 直接支持（PyInstaller `--uac-admin` 清单） | 支持 |
+| 长任务/线程模型 | 弱 | **QThread + 信号槽**，成熟；UI 不阻塞 | 一般 |
+| 与外部进程/文件密集操作 | 可行但费劲 | 成熟（信号槽回传进度/日志） | 可行 |
+| 打包体积影响 | 极小 | +40–60MB（PyInstaller，**代价已接受**） | 中 |
+| 中文生态/资料 | 一般 | 丰富 | 一般 |
 
-**决策：采用 WPF + .NET 8**，配合 Fluent 风格控件库（首选 **WPF-UI**，备选 **HandyControl**）。
+**决策：采用 PySide6 + PyQt-Fluent-Widgets**。
 
-理由：本工具是**以管理员运行、集成大量外部进程与文件操作的系统级工具**，部署越简单越好；WPF 在提升运行、单文件发布、稳定性与生态上更契合，现代外观可由控件库补足。WinUI 3 作为备选记录在开放问题中。
+理由：本工具是**以管理员运行、集成大量外部进程与文件操作的系统级工具**，需要成熟的线程模型承载长任务进度回调；PyQt-Fluent-Widgets 提供与线框图对齐的 Fluent 导航视图、卡片、风险徽章与亮暗主题；Qt 官方 PySide6 为 LGPL 许可，分发友好。Tkinter 因控件质感与线程模型不足被排除；wxPython 因控件生态弱被排除。
 
 ### 3.2 语言与运行时
 
-- 语言：C#（最新版本）
-- 运行时：.NET 8（Windows）
-- 目标：`net8.0-windows`，仅 x64
+- 语言：Python 3.12+（x64）
+- **开发与运行环境（强制约定）**：
+  - **所有脚本（开发、测试、构建、打包、自动化代理）一律在工作空间根目录的虚拟环境 `.venv` 中运行**，不得使用系统 Python 主环境；
+  - 首次初始化：`python -m venv .venv`；
+  - 此后统一以 `.venv\Scripts\python` 执行（安装：`-m pip install -e ".[dev]"`；测试：`-m pytest`；打包：`-m PyInstaller ...`）；
+  - 禁止任何不带 `.venv` 前缀的全局 `pip install` 或脚本运行。
+- 发布产物：PyInstaller **单目录**打包（**便携式** zip，解压即用；程序、日志、配置、预设、任务、工具同目录；内嵌解释器与依赖，目标机器免装 Python；**打包体积与启动时间代价已明确接受**），管理员提升经 `--uac-admin` 清单实现。
 
 ### 3.3 关键第三方库
 
 | 用途 | 库 |
 |---|---|
-| MVVM 源生成 | `CommunityToolkit.Mvvm`（ObservableProperty/RelayCommand） |
-| 依赖注入/Host | `Microsoft.Extensions.Hosting` + `DependencyInjection` |
-| 日志 | `Microsoft.Extensions.Logging` + `Serilog`（文件滚动） |
-| 序列化 | `System.Text.Json`（任务配置/预设/设置） |
-| 客户端校验 | `CommunityToolkit.Mvvm` 验证 + 自定义 Rule |
-| UI 控件库 | `WPF-UI`（Fluent 主题、导航、对话框） |
-| 图标 | Segoe Fluent Icons / Segoe MDL2 |
-| 单元测试 | `xUnit` + `FluentAssertions` |
+| GUI 框架 | `PySide6`（Qt 6 官方 Python 绑定） |
+| Fluent 控件库 | `PyQt-Fluent-Widgets`（Fluent 主题、导航、对话框） |
+| 视图逻辑 | Qt 信号槽 + Presenter 模式（不引入额外 MVVM 框架） |
+| 依赖注入/组合根 | `dependency-injector`（或组合根模块手动装配） |
+| 日志 | `logging` + 自定义文件处理器（每次启动一个文件、三条件清理、审计分流，见 `日志规范.md`） |
+| 序列化与模型 | `pydantic`（任务配置/预设/设置 + 校验） |
+| 规则库校验 | `jsonschema`（draft-07，直接消费 `rules.schema.json`） |
+| CLI | `typer`（最小命令集 `--config`/`--dry-run`/`--resume`/`--debug`、退出码、JSON 输出） |
+| XML | `lxml`（unattend 生成 + XSD schema 校验） |
+| 单元测试 | `pytest` + `pytest-qt` + `dirty-equals`（断言） |
+| 代码质量 | `ruff`（lint/format）+ `mypy`（类型检查） |
+| 打包 | `pyinstaller`（单目录优先，`--uac-admin` 提权清单） |
 
-> 除 UI 相关库外，其余均下沉到 Core/Infrastructure，保证 CLI 无 UI 依赖。
+> 除 UI 相关库外，其余均下沉到 core/infrastructure，保证 CLI 无 UI 依赖。
 
 ---
 
@@ -83,8 +93,8 @@
 ```mermaid
 flowchart TB
   subgraph P[呈现层 Presentation]
-    GUI[UUP2ISO.Gui (WPF/MVVM)]
-    CLI[UUP2ISO.Cli]
+    GUI[uup2iso.gui (PySide6 + Fluent)]
+    CLI[uup2iso.cli]
   end
   subgraph A[应用层 Application]
     ORCH[PipelineOrchestrator]
@@ -113,58 +123,65 @@ flowchart TB
 
 依赖方向始终向内（GUI/CLI → Application → Core ← Infrastructure）。
 
-### 4.2 解决方案与项目结构
+### 4.2 工程与包结构
+
+> 所有命令（安装/测试/打包）一律在工作空间 `.venv` 虚拟环境内执行（见 §3.2）。
 
 ```
-UUP2ISO.sln
+UUP2ISO/
+├─ pyproject.toml                # 依赖、版本、工具链（ruff/mypy/pytest）声明
+├─ .venv/                        # 工作空间虚拟环境（强制；.gitignore 排除，不入库）
 ├─ src/
-│  ├─ UUP2ISO.Core/                 # 领域模型与接口（无外部依赖）
-│  │  ├─ Models/                    # BuildInfo, UupFile, ImageInfo, Edition, PipelineContext ...
-│  │  ├─ Pipeline/                  # Stage 定义, 阶段基类, 上下文
-│  │  ├─ Options/                   # ConvertOptions, SlimOptions, OptimizeOptions, IntegrateOptions, UnattendOptions, OutputOptions
-│  │  ├─ Presets/                   # Preset 模型与校验
-│  │  ├─ Abstractions/              # IUupSource, IDownloader, IImageEngine, IOptimizer, IIsoBuilder, IPresetStore, ISettings
-│  │  └─ Errors/                    # 统一错误类型与退出码
-│  ├─ UUP2ISO.Application/          # 编排与用例
-│  │  ├─ Pipeline/                  # PipelineOrchestrator, StagePlanner（按入口裁剪）
-│  │  ├─ TaskSession/               # 任务状态机、断点续跑
-│  │  ├─ Settings/                  # 设置服务
-│  │  └─ Progress/                  # IProgress 上报模型
-│  ├─ UUP2ISO.Infrastructure/
-│  │  ├─ Source/                    # UupDumpSource（基址可配）
-│  │  ├─ Download/                  # Aria2Downloader, Aria2ToolFetcher, 校验/续传
-│  │  ├─ Imaging/                   # WimlibImageEngine, DismImageEngine, ImageEngineRouter
-│  │  ├─ Optimize/                  # SystemOptimizer, 清理清单, tweak 清单, CompactOS
-│  │  ├─ Iso/                       # OscdimgIsoBuilder
-│  │  ├─ Process/                   # ProcessRunner, 进度/日志解析器
-│  │  └─ Storage/                   # SettingsStore, PresetStore, ManifestCache
-│  ├─ UUP2ISO.Gui/                  # WPF（仅依赖 Application/Core）
-│  │  ├─ App.xaml(.cs)              # Host + DI 引导
-│  │  ├─ Views/                     # 页面/对话框
-│  │  ├─ ViewModels/                # MVVM
-│  │  ├─ Controls/                  # 自定义控件（日志查看、风险徽章等）
-│  │  ├─ Resources/                 # 主题、图标、本地化
-│  │  └─ Navigation/                # 导航服务、向导步骤引擎
-│  └─ UUP2ISO.Cli/
+│  ├─ uup2iso/                   # 可安装包（.venv 内 pip install -e .）
+│  │  ├─ core/                   # 领域模型与接口（无外部依赖）
+│  │  │  ├─ models/              # BuildInfo, UupFile, ImageInfo, Edition, PipelineContext ...
+│  │  │  ├─ pipeline/            # Stage 定义, 阶段基类, 上下文
+│  │  │  ├─ options/             # ConvertOptions, SlimOptions, OptimizeOptions, IntegrateOptions, UnattendOptions, OutputOptions
+│  │  │  ├─ presets/             # Preset 模型与校验
+│  │  │  ├─ abstractions/        # IUupSource, IDownloader, IImageEngine, IOptimizer, IIsoBuilder, IPresetStore, ISettings（typing.Protocol）
+│  │  │  └─ errors/              # 统一错误类型与退出码
+│  │  ├─ application/            # 编排与用例
+│  │  │  ├─ pipeline/            # PipelineOrchestrator, StagePlanner（按入口裁剪）
+│  │  │  ├─ task_session/        # 任务状态机、断点续跑
+│  │  │  ├─ settings/            # 设置服务
+│  │  │  └─ progress/            # 进度上报模型
+│  │  ├─ infrastructure/         # 外部工具与存储适配
+│  │  │  ├─ source/              # UupDumpSource（基址可配）
+│  │  │  ├─ download/            # Aria2Downloader, Aria2ToolFetcher, 校验/续传
+│  │  │  ├─ imaging/             # WimlibImageEngine, DismImageEngine, ImageEngineRouter
+│  │  │  ├─ optimize/             # SystemOptimizer, 清理清单, tweak 清单, CompactOS
+│  │  │  ├─ iso/                 # OscdimgIsoBuilder
+│  │  │  ├─ process/              # ProcessRunner, 进度/日志解析器
+│  │  │  └─ storage/             # SettingsStore, PresetStore, ManifestCache
+│  │  ├─ gui/                    # PySide6（仅依赖 application/core）
+│  │  │  ├─ app.py               # 组合根：装配接口实现并启动
+│  │  │  ├─ views/               # 页面/对话框
+│  │  │  ├─ presenters/          # 视图逻辑（对应 MVVM 之 ViewModel）
+│  │  │  ├─ controls/            # 自定义控件（日志查看、风险徽章等）
+│  │  │  ├─ resources/           # 主题、图标、本地化
+│  │  │  └─ navigation/          # 导航服务、向导步骤引擎
+│  │  ├─ cli/                    # 最小 CLI 入口（typer：run --config / --dry-run / --resume / --debug / version）
+│  │  └─ __init__.py             # __version__（版本管理约定的同步点之一）
 ├─ tests/
-│  ├─ UUP2ISO.Core.Tests/
-│  └─ UUP2ISO.Application.Tests/
+│  ├─ test_core/
+│  └─ test_application/
+├─ rules/                        # 构建时复制到程序目录（FR4/FR5 规则库）
 └─ docs/
 ```
 
-### 4.3 核心接口（契约）
+### 4.3 核心接口（契约，typing.Protocol）
 
 | 接口 | 职责 | 主要方法（示意） |
 |---|---|---|
-| `IUupSource` | 构建查询/清单（基址可配） | `GetBuildsAsync`, `GetBuildDetailAsync`, `BuildManifestAsync` |
-| `IDownloader` | aria2c 下载/校验/续传 | `DownloadAsync(manifest, options, progress, ct)` |
-| `IToolProvider` | 外部工具定位与 aria2c 自动获取 | `EnsureAsync(ToolKind)`, `Locate(ToolKind)` |
-| `IImageEngine` | 挂载/导出/转换 | `MountAsync`, `UnmountAsync`, `ExportAsync`, `GetImagesAsync` |
-| `IOptimizer` | 空间回收/tweak/CompactOS | `ReclaimAsync`, `ApplyTweaksAsync`, `CompactAsync` |
-| `IIsoBuilder` | ISO 封装 | `BuildAsync(isoOptions)` |
-| `IPresetStore` | 精简/优化/集成/无人值守预设 | `List/Save/Load/Export/Import` |
-| `ISettings` | 全局设置 | `Get<T>/Set<T>/SaveAsync` |
-| `IPipelineOrchestrator` | 阶段编排 | `Plan(entry, options)`, `RunAsync(session, ct)` |
+| `IUupSource` | 构建查询/清单（基址可配） | `get_builds()`, `get_build_detail()`, `build_manifest()` |
+| `IDownloader` | aria2c 下载/校验/续传 | `download(manifest, options, progress, ct)` |
+| `IToolProvider` | 外部工具定位与 aria2c 自动获取 | `ensure(tool_kind)`, `locate(tool_kind)` |
+| `IImageEngine` | 挂载/导出/转换 | `mount()`, `unmount()`, `export()`, `get_images()` |
+| `IOptimizer` | 空间回收/tweak/CompactOS | `reclaim()`, `apply_tweaks()`, `compact()` |
+| `IIsoBuilder` | ISO 封装 | `build(iso_options)` |
+| `IPresetStore` | 精简/优化/集成/无人值守预设 | `list()/save()/load()/export()/import_()` |
+| `ISettings` | 全局设置 | `get(key)/set(key, value)/save()` |
+| `IPipelineOrchestrator` | 阶段编排 | `plan(entry, options)`, `run(session, ct)` |
 
 ---
 
@@ -213,24 +230,28 @@ stateDiagram-v2
   Succeeded --> [*]
 ```
 
-- `TaskSession` 持久化 `PipelineContext`（当前阶段、已完成文件哈希、选项）到 `%LocalAppData%\UUP2ISO\tasks\{id}.json`，支持 `--resume` / GUI「继续上次」。
+- `TaskSession` 持久化 `PipelineContext`（当前阶段、已完成文件哈希、选项）到 `{程序目录}\tasks\{id}.json`，支持 `--resume` / GUI「继续上次」。
 - 失败重试仅重跑失败阶段（原子性：不产出半成品，见非功能）。
 
 ### 5.3 进度与日志上报
 
-- `IProgress<StageProgress>`：`{ Stage, Percent, Message, SubPercent }`，供进度条与状态栏。
-- `ILogSink`：结构化日志（时间、级别、阶段、外部工具原始行），UI 与文件共用。
-- 外部工具（aria2c/DISM/wimlib/oscdimg）输出经 `ProcessRunner` 解析为进度（如 aria2c `%`、DISM 百分比），原始行进入日志面板。
+- 进度回调 `progress: Callable[[StageProgress], None]`：`{stage, percent, message, sub_percent}`，供进度条与状态栏。
+- `LogSink`：纯文本结构化日志，行格式见 `日志规范.md` §2.3；字段含「时间、级别、阶段、消息」+ 键值对 `task/tool/exit/duration/file/rule/risk`；UI 与文件共用同一份。
+- **只记头尾**：外部工具只写 `event=start` / `event=finish`（含返回码与耗时）；进度类行（百分比、进度条、速度/ETA）只更新进度模型，**不写入日志文件**（见 `日志规范.md` §5.2）。
+- 审计事件（高风险项确认、不可逆操作、设置变更）写入独立的 `audit_*.log`，与运行日志同一启动时间戳前缀。
+- 外部工具（aria2c/DISM/wimlib/oscdimg）输出经 `ProcessRunner`（`asyncio.subprocess`）分类为 `progress`/`line`/`result`，原始非进度行进入日志面板与文件。
 
 ### 5.4 配置、设置与预设（三分离）
 
 | 类型 | 说明 | 存储 |
 |---|---|---|
-| **AppSettings** | 全局设置（数据源地址、aria2c 获取、代理、输出目录、语言、工具路径）FR10.4 | `%LocalAppData%\UUP2ISO\settings.json` |
-| **TaskConfig** | 单个任务全流程（输入源、起始阶段、各阶段选项、输出规则）FR9.1 | 用户选择保存路径（JSON/YAML） |
-| **Preset** | 可复用的精简/优化/集成/无人值守片段 FR4.4/FR5.6 | `%LocalAppData%\UUP2ISO\presets\*.json` |
+| **AppSettings** | 全局设置（数据源地址、aria2c 获取、代理、输出目录、语言、工具路径、日志阈值）FR10.4 | `{程序目录}\config\settings.json` |
+| **TaskConfig** | 单个任务全流程（输入源、起始阶段、各阶段选项、输出规则）FR9.1 | 用户选择保存路径（JSON）；默认 `{程序目录}\tasks\` |
+| **Preset** | 可复用的精简/优化/集成/无人值守片段 FR4.4/FR5.6 | `{程序目录}\presets\*.json` |
 
-优先级：**CLI 参数/任务配置 > AppSettings**。
+优先级：**任务配置 > AppSettings**。CLI 只指定配置文件与运行开关，不参与字段级覆盖。
+
+> **便携分发**：以上数据与 `logs\`、`tools\` 均位于程序目录，不写系统用户目录、不写注册表；程序目录不可写时启动即报错，不静默回退。
 
 ### 5.5 工具定位与 aria2c 自动获取
 
@@ -246,6 +267,7 @@ stateDiagram-v2
 | 阶段失败 | 2 | 红色错误卡 + 「查看日志」「重试本阶段」 |
 | 用户取消 | 3 | 中性提示 |
 | 参数/依赖错误 | 4 | 前置校验拦截，指明缺失项 |
+| 已有实例运行 | 5 | GUI 激活已有窗口后退出；CLI 输出 `already_running` 后退出 |
 
 错误对象含：阶段、涉及文件、外部工具、返回码、原始输出片段。
 
@@ -261,8 +283,8 @@ stateDiagram-v2
 2. **任务**（历史/进行中，可继续）
 3. **预设**（精简/优化/集成/无人值守预设管理）
 4. **设置**（数据源地址、aria2c、代理、输出目录、语言）
-5. **工具与依赖**（自检结果、aria2c 获取、ADK/oscdimg 检测）
-6. **日志**（会话日志查看）
+5. **工具与依赖**（自检结果、缺失自动获取、工具自动更新、ADK/oscdimg 检测）
+6. **日志**（本次运行日志查看、打开日志目录、生成诊断包）
 7. **关于**
 
 > 面向普通用户时默认进入「新建任务」向导；高级用户可切到「任务」直接加载配置。
@@ -464,40 +486,75 @@ flowchart LR
 ┌ 执行中 ────────────────────────────────────────────────────────────────┐
 │ 阶段: ● 下载 ✔ → ● 转换 ✔ → ● 精简 ⧗ → ○ 优化 → ○ 定制 → ○ 输出        │
 │ 总进度 ██████████░░░░░ 58%    当前: 移除 Appx (7/24)                    │
-│ ┌ 日志 ──────────────────────────────────────────────────────────────┐ │
-│ │ [14:02:11] INFO  DISM /Remove-ProvisionedAppxPackage ...            │ │
-│ │ [14:02:13] WARN  依赖冲突已跳过: ...                                │ │
+│ ┌ 日志（进度不入日志）───────────────────────────────────────────────┐ │
+│ │ 22:02:11.402 [INFO ] [Slim] 工具开始 tool=DISM event=start          │ │
+│ │ 22:02:13.118 [WARN ] [Slim] 依赖冲突已跳过: ...                     │ │
 │ └────────────────────────────────────────────────────────────────────┘ │
 │ [暂停] [取消] [复制日志]                                               │
 └────────────────────────────────────────────────────────────────────────┘
 ```
 
 - 阶段串可点击查看已完成阶段的详情；失败时该阶段标红并出现「重试本阶段」。
+- 日志面板只显示非进度事件（工具头尾、警告、错误、审计跳转）；进度在同页进度条与状态文本中展示，不写入日志（`日志规范.md` §5.2）。
 
 #### 6.4.11 设置页（FR10.4）
 
 ```
 ┌ 设置 ──────────────────────────────────────────────────────────────────┐
-│ [常规] [数据源] [下载] [工具与依赖] [高级]                              │
+│ [常规] [数据源] [下载] [日志] [工具与依赖] [高级]                       │
 │ ┌ 数据源 ────────────────────────────────────────────────────────────┐ │
 │ │ 数据源网址  [https://uupdump.net/        ] [测试连接] ✔ 可用        │ │
 │ │ 备用地址    [+ 添加]                                                │ │
 │ └────────────────────────────────────────────────────────────────────┘ │
+│ ┌ 日志 ──────────────────────────────────────────────────────────────┐ │
+│ │ 当前级别  INFO（发布版）   目录 {程序目录}\logs        [打开]        │ │
+│ │ 运行日志  总大小 [200] MB   保留 [30] 天   数量 [100] 个            │ │
+│ │           （含诊断包 diag_*.zip，同池统计）                          │ │
+│ │ 审计日志  总大小 [20] MB    保留 [365] 天  数量 [200] 个  只读 ✔    │ │
+│ │ [立即清理]   [生成诊断包]                                           │ │
+│ └────────────────────────────────────────────────────────────────────┘ │
 │ ┌ 工具与依赖 ────────────────────────────────────────────────────────┐ │
-│ │ aria2c        [✓ 已获取 v1.36.0]  来源[官方发布 ▼] [重新获取]       │ │
+│ │ aria2c        [✓ 已获取 v1.37.0]  来源[官方发布 ▼] [重新获取]       │ │
 │ │ 7-Zip         [✓ 内置]     wimlib-imagex [✓ 内置]                   │ │
+│ │ 转换器        [✓ v1.0 随包]  版本锁定 · 不参与自动更新  [查看说明]   │ │
 │ │ DISM          [✓ 系统内置]                                          │ │
 │ │ oscdimg       [✗ 未找到]  → 需安装 Windows ADK [获取指引]           │ │
+│ │ 自动更新      [关闭 ●]  ⓘ 按随包清单对齐版本，不追新版      [立即对齐] │ │
 │ └────────────────────────────────────────────────────────────────────┘ │
 │ [保存]                                                                 │
 └────────────────────────────────────────────────────────────────────────┘
 ```
 
 - 数据源地址保存前做可用性校验，失败可一键回退默认（FR1.4）。
+- 日志级别只读展示（来源：发布版 INFO / 开发模式 DEBUG / `--debug`）；三项清理阈值按 `日志规范.md` §4 校验（总大小 ≥ 10 MB、天数 ≥ 1、数量 ≥ 5），CLI 不提供对应设置入口。
+- 日志目录固定为 `{程序目录}\logs`（便携分发，只读展示）；审计日志退出后自动置只读，清理删除时在运行日志留痕。
+- 工具缺失时按锁定清单（`tools\tools.lock.json`）从**官方发布通道**自动获取并 SHA256 校验（仅必需工具；`oscdimg` 只提示装 ADK）；**自动更新默认关闭**，开启后仅在启动、任务开始前把本地工具**对齐到随包清单登记的版本**（不是追上游新版），成功保留 `.bak`、失败保留现状并继续；本地版本高于清单不回退，标注「非受支持版本」；转换器版本锁定、不参与对齐（`映像引擎与转换规范.md` §9）。
 
 #### 6.4.12 预设管理
 
 - 列表 + 新建/复制/重命名/导入/导出；分「精简 / 优化 / 集成 / 无人值守」四类，也可整体打包为一份任务配置。
+
+#### 6.4.13 诊断包（FR9.5）
+
+```
+┌ 生成诊断包 ────────────────────────────────────────────────────────────┐
+│ 任务: 7f3a · 入口 A · 26100.6508（延续任务，已续跑 3 次）                │
+│ 将包含: 该任务全部运行日志（4 个文件 → 合并 1 份）/ 审计 / 脱敏设置      │
+│ 不包含: ISO·WIM·ESD、UUP 原始文件、驱动目录、工具二进制                  │
+│ 范围:  ● 整个任务（含历史续跑）   ○ 仅本次运行                          │
+│ 保存到: [{程序目录}\logs\              ] [浏览]  ⓘ 此处受清理策略管理    │
+│ ── 进度 ── 收集 ████████░░  脱敏 ░░░░  压缩 ░░░░                        │
+│                                          [取消]   [生成]                │
+└────────────────────────────────────────────────────────────────────────┘
+```
+
+- **一键**：点「生成」后自动收集 → 脱敏 → 压缩，完成后提示路径与「打开所在文件夹」。
+- **范围按任务判定**（日志规范 §7.3）：读 `tasks\{task_id}.json` 的日志索引——非延续任务只取本次运行的 `run_*.log` / `audit_*.log`；**延续任务**取索引内全部文件，逐文件保留 `task=<id>` 行后按时间合并。**不扫描目录**，因此不会带入其他任务的日志。
+- 索引中的文件已被清理时，界面提示「部分历史日志缺失」，包内 `exact=false`，仍可生成。
+- 默认保存到 `{程序目录}\logs\`（与日志同池，受同一清理阈值约束）；改选其他目录则不受清理管理，界面需提示。
+- 包内 `manifest.json` 含生成时间、程序版本、OS 构建、任务 id、来源文件清单与逐文件 SHA256、匹配行数、缺失文件、脱敏声明；纯本地不上传。
+- 打包以只读方式复制审计日志，**不得解除审计只读属性**；失败只提示原因，不影响正在运行的任务。
+- 入口：日志页、设置页「日志」页签、失败错误卡片上的「打包诊断」。
 
 ### 6.5 交互细节
 
@@ -509,25 +566,26 @@ flowchart LR
 
 ### 6.6 视觉与主题
 
-- Fluent 风格（WPF-UI）；支持跟随系统亮/暗主题，可手动切换。
+- Fluent 风格（PyQt-Fluent-Widgets）；支持跟随系统亮/暗主题，可手动切换。
 - 语义色：正常/进行/警告/错误；风险徽章低=灰、中=橙、高=红。
-- 图标统一使用 Segoe Fluent Icons。
+- 图标统一使用 Fluent 图标资源（随控件库提供）。
 
 ### 6.7 国际化
 
-- 界面中/英（资源文件 `.resx` 或本地化 json）；ISO 语言与界面语言**独立**（非功能・国际化）。
+- 界面中/英（本地化 JSON 或 Qt 翻译文件 `.ts`/`.qm`）；ISO 语言与界面语言**独立**（非功能・国际化）。
 
 ---
 
 ## 7. GUI 与 CLI 复用
 
-- 两者均通过 `IPipelineOrchestrator` 驱动，输入同一 `TaskConfig`。
-- CLI 参数（`--input`、`--source-url`、`--config`、`--dry-run`、`--resume` 等）与向导字段一一映射；`--dry-run` 输出将执行的阶段与外部命令。
-- 输出 JSON 结果供 CI 消费；退出码见 5.6。
+- 两者均通过 `IPipelineOrchestrator` 驱动，输入同一 `TaskConfig`：**GUI 保存的任务配置即 CLI 的输入文件**。
+- **CLI 为最小命令集**：`run --config <TaskConfig>`、`--dry-run`、`--resume`、`--debug`（一次性启用 DEBUG 日志）、`version`；**不做字段级参数覆盖**，所有业务选项只在 `TaskConfig` 中表达，避免 GUI 与 CLI 形成两套配置契约。
+- `--dry-run` 输出将执行的阶段与外部命令；输出 JSON 结果供 CI 消费；退出码见 5.6。
+- 定位：GUI 是主入口（覆盖全部用户与全部流程）；CLI 只承担「复用已保存配置 + 批处理/CI」场景，不承担交互式配置。
 
 ```
-用户输入 ─┬─ GUI 向导 ─┐
-          └─ CLI 参数 ─┴─► TaskConfig ─► Orchestrator ─► Core/Infrastructure ─► 结果/日志
+用户输入 ─┬─ GUI 向导 ────────┐
+          └─ CLI(--config) ──┴─► TaskConfig ─► Orchestrator ─► Core/Infrastructure ─► 结果/日志
 ```
 
 ---
@@ -567,11 +625,14 @@ sequenceDiagram
 
 ## 9. 开发规范（约定）
 
-- **MVVM**：View 只做布局与绑定；逻辑在 ViewModel；`CommunityToolkit.Mvvm` 源生成属性/命令。
-- **导航**：`INavigationService` 管理页面与向导步骤；步骤可回退，选项随 `TaskConfig` 双向绑定。
-- **异步**：所有 I/O 异步；长任务传 `CancellationToken`；UI 线程不阻塞。
-- **可测试**：ViewModel 与 Orchestrator 不依赖 UI 类型，便于单测。
+- **MVVM 式分离**：View 只做布局与绑定；逻辑在 Presenter（对应 ViewModel）；绑定经 Qt 信号槽实现，不引入额外 MVVM 框架。
+- **导航**：`NavigationService` 管理页面与向导步骤；步骤可回退，选项随 `TaskConfig` 双向绑定。
+- **异步**：所有 I/O 异步（`asyncio`）；长任务支持取消；UI 线程不阻塞，经信号槽回传进度。
+- **可测试**：Presenter 与 Orchestrator 不依赖 UI 类型，便于单测（`pytest-qt`）。
 - **无魔法**：不在 UI 线程调用外部进程；进程输出统一走 `ProcessRunner`。
+- **日志**：统一走 `LogSink`，禁止模块内直接写文件；进度事件不得落盘（见 `日志规范.md` §5.2）。
+- **运行环境（强制）**：一切脚本（开发/测试/构建/打包）运行于工作空间 `.venv` 虚拟环境，禁止使用系统 Python 主环境，禁止全局 `pip install`。
+- **类型与静态检查**：公开接口带类型注解；`ruff`（lint/format）与 `mypy` 作为合并门禁。
 - **禁止**：任何激活/授权绕过逻辑（合规）。
 
 ---
@@ -580,7 +641,7 @@ sequenceDiagram
 
 | 阶段 | GUI/框架交付 |
 |---|---|
-| **MVP** | 解决方案骨架 + DI/Host + CLI 优先；GUI 仅「新建任务」最小向导（入口 A/B/C 选择 + 执行 + 进度/日志）+ 设置页 |
+| **MVP** | 工程骨架（`pyproject.toml` + `.venv` 虚拟环境 + 组合根装配）+ **最小 CLI 优先**（`run --config` / `--dry-run` / `--resume`）；GUI 仅「新建任务」最小向导（入口 A/B/C 选择 + 执行 + 进度/日志）+ 设置页 |
 | **二期** | 完善向导：构建选择、下载、转换、精简、优化页面 + 预设管理 + 主题/国际化 |
 | **三期** | 集成页 + 无人值守可视化 + schema 校验 |
 | **四期** | 批处理/CI 支持面板、CompactOS/服务预置等优化项扩展、托盘/后台继续 |
@@ -589,9 +650,10 @@ sequenceDiagram
 
 ## 11. 开放问题
 
-- [ ] 控件库最终确定：WPF-UI vs HandyControl。
+- [x] 控件库最终确定：PyQt-Fluent-Widgets（随 GUI 框架决策一并确定）。
 - [ ] 向导形态：单窗口分步控件 vs 多页导航（是否允许非线性跳转）。
 - [ ] 长任务后台继续的实现（托盘常驻 vs 独立进程/服务）。
 - [ ] 任务配置与 AppSettings 是否统一为一种文件格式与位置。
 - [ ] 优化项清单的更新机制（内置 vs 可在线刷新，见需求文档待办）。
 - [ ] `--dry-run` 在 GUI 中的呈现形式（预览面板）。
+- [ ] PyInstaller 依赖精简（excludes 清单）与产物代码签名策略。

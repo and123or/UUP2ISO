@@ -1,5 +1,50 @@
 # CHANGELOG
 
+## 0.1.9 — WP0-T3 领域模型与接口契约
+
+> 依据：架构 §5、§6；GUI 框架 §4.3；需求 §7.3。验收：接口编译通过、有类型注解与文档字符串。
+
+### 新增（`core/models/`，全部为冻结值对象，`core` 无第三方依赖）
+- `enums.py`：`EntryPoint`/`ImageType`/`OutputType`/`CompressionKind`/`VerifyLevel`/`TaskState`/`StageState`/`SubstepState`/`DownloadFileState`/`Architecture`/`ToolKind`/`EngineKind`/`PresetKind`。取值逐条对齐配置 §3.2–§3.4、输入 §2.1、输出 §6、术语 §2.2、引擎 §3.1。
+- `build.py`：`BuildInfo`（含 `build_number` 供无人值守 §3.1 查组件版本）。
+- `manifest.py`：`Manifest`/`UupFile`/`ManifestSource`，字段与下载 §3.1 一一对应；内置自校验辅助（`is_total_consistent`、`has_duplicate_names`、`required_files`）。
+- `image.py`：`ImageInfo`/`Edition`（对齐输入 §4 `probe.json`；`is_rejected` 覆盖加密/多卷/分片三条拒绝规则）。
+- `tools.py`：`ToolInfo`/`ToolSource`/`EngineCapabilities`（`is_conservative` 表达引擎 §5 保守模式）。
+- `download.py`：`DownloadedFile`/`DownloadReport`/`DownloadFailure`（失败清单带期望/实际哈希，下载 §7）。
+- `verification.py`：`VerifyReport`/`VerifyFinding`/`VerifySeverity`（输出 §6 分级）。
+- `rules.py`：`RuleOutcome`/`RuleReport`（规则 §5「跳过必须可见」的承载）。
+
+### 新增（`core/abstractions/`，8 个接口 + 2 个横切契约）
+- `IUupSource`、`IDownloader`、`IToolProvider`、`IImageEngine`、`IOptimizer`、`IIsoBuilder`、`IPresetStore`、`ISettings`；`CancelToken`、`ProgressSink`。
+- 全部 `@runtime_checkable`，每个成员都有文档字符串与返回类型注解，异常语义写在 `Raises:` 里（具体异常类型待 WP0-T4 定义）。
+
+### 新增（`core/options/execution.py`）
+- `DownloadOptions`/`ExportRequest`/`MountRequest`/`IsoBuildRequest`/`OptimizeRequest`：接口只接受这些窄 DTO，不直接吃 `TaskConfig`。
+
+### 决策（本轮冻结，后续任务据此实现）
+| # | 决策 | 理由 |
+| --- | --- | --- |
+| D1 | 模型用 `dataclass(frozen=True, slots=True)` | GUI 框架 §4.2 要求 core 无外部依赖；pydantic 留给 T6 的 TaskConfig |
+| D2 | 接口取 **8 个**（补 `IToolProvider`） | 架构 §6 明确列出，T7 要挂靠 |
+| D3 | I/O 接口 `async def`，纯查询同步 | GUI 框架 §9「所有 I/O 异步」 |
+| D4 | 接口只接窄 DTO，不接 `TaskConfig` | 避免 core 反向依赖配置模型 |
+| D5 | 取消/进度只定义 Protocol | 实现分属 T5（进程）/T10（日志） |
+| D6 | `StageKind`/`PipelineContext` 留给 WP1-T1 | 属编排模型，避免与 T1 重复定义 |
+
+### 测试
+- `tests/test_models.py`（19 项）：**枚举取值逐字等于规范**（文档改而代码没改会先红）、冻结不可变、派生属性与拒绝规则。
+- `tests/test_abstractions.py`（38 项）：必须是 `Protocol` 且 `runtime_checkable`、每成员有文档字符串与返回注解、参数全注解、I/O 方法为协程、纯查询非协程。
+- 全量：`pytest 121 passed`；`mypy 48 files` 无错；`ruff check` / `ruff format --check` 全绿。
+
+### 变更（文档同步）
+- `项目计划` v0.22 → **v0.23**：WP0-T3 交付物改写为 8 接口 + 执行请求 DTO，`术语表 §1.2` 版本列同步。
+
+### 已知限制
+- `PipelineContext`/`Stage`/`StageKind` 未在本轮定义（决策 D6），`架构 §5` 类图中的这两项要到 WP1-T1 才落地。
+- `TaskConfig` 与各 `*Options` 属 WP0-T6；本轮只有执行请求 DTO，GUI 直接绑定的配置模型尚不存在。
+- 接口 `Raises:` 中提到的异常类型（`SourceUnavailableError` 等）尚未定义，WP0-T4 建立统一错误模型后才可通过 `except` 使用。
+- `IOptimizer`/`IPresetStore` 的方法集在 M2 落地时可能需要追加（如 `verify_tweaks`），届时按「先改文档再改代码」补章节。
+
 ## 0.1.8 — 修复 CI 首次运行失败（控制台编码）
 
 > 实测：CI 首个 step「环境一致性自检」直接红，`env_check.py` 第 149 行

@@ -1,5 +1,34 @@
 # CHANGELOG
 
+## 0.1.10 — 修复 GUI 入口：窗口秒退 + 进程无法退出
+
+> 触发：手动运行 `.venv\Scripts\uup2iso-gui.exe`（或 `python -m uup2iso.gui.app`）时，
+> 窗口闪一下就消失，但控制台停在 `QFluentWidgets Pro` 提示行不返回，Ctrl+C / Ctrl+D / exit 均无效。
+> 这是 M0 的一次漏检：`tests/test_gui_smoke.py` 只覆盖了「能创建窗口」，没覆盖 `main()` 的真实启动路径。
+
+### 修复
+- **窗口被提前回收**（`gui/app.py` `run_event_loop`）：原代码 `create_main_window().show()` 的返回值是
+  临时对象，`show()` 返回后立即被 CPython 回收，底层 `QMainWindow` 随之析构 → 窗口消失；
+  而 `QApplication.exec()` 仍在空转，于是出现「窗口没了、进程不退」的组合症状。
+  改为先绑定局部变量 `window = create_main_window()` 再 `show()`，并在 `finally` 中 `close()`。
+- **Ctrl+C 无效**：Qt 的 C++ 事件循环不执行 Python 字节码，SIGINT 只被置位不会被处理。
+  新增 `_install_sigint_handler()`：`signal.SIGINT → app.quit()`，并用一个 200 ms 心跳 `QTimer`
+  （以 `app` 为父对象，避免自身被 GC）给解释器制造处理信号的机会。
+
+### 变更
+- `main()` 拆为「配置 app」+ `run_event_loop(app)` 两步：后者可注入替身，使「进入事件循环时窗口仍存活」
+  成为可断言的事实，而不是只能靠肉眼看窗口。
+
+### 新增
+- `tests/test_gui_smoke.py::test_event_loop_keeps_window_alive`：用只实现 `exec()` 的替身 app 驱动真实
+  `run_event_loop`，断言进入事件循环时顶层窗口数 ≥ 1。若有人再写成临时对象形式，这条立即红。
+
+### 已知限制
+- Ctrl+C 的响应有最长 200 ms 延迟（心跳间隔），属既定取舍；若后续引入 `qasync` 事件循环可去掉心跳。
+- 本轮只验证了「窗口驻留 + 可中断」，界面仍是占位标签（WP9-T1 起替换）。
+- `gui-scripts`（`uup2iso-gui.exe`）由 pythonw 启动、无控制台，崩溃时看不到 traceback；
+  统一异常落盘要等 WP0-T10 的 `LogSink`，在那之前排查请用 `python -m uup2iso.gui.app`。
+
 ## 0.1.9 — WP0-T3 领域模型与接口契约
 
 > 依据：架构 §5、§6；GUI 框架 §4.3；需求 §7.3。验收：接口编译通过、有类型注解与文档字符串。

@@ -1,0 +1,5 @@
+CLI方式运行
+.venv\Scripts\uup2iso.exe
+
+GUI方式运行
+.venv\Scripts\uup2iso-gui.exe

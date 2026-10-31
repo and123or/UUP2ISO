@@ -137,5 +137,5 @@ CI 见 `.github/workflows/ci.yml`，同样先建 `.venv` 再执行上述命令�
 ## 已知限制
 
 - 仅支持 Windows 10/11 x64；Python 3.14 需等 PySide6 提供 wheel。
-- 当前版本 `0.1.9` 为 M0 工程基线：`core` 等包内只有占位 `__init__.py`，业务能力按 WP 顺序实现。
+- 当前版本 `0.1.10` 为 M0 工程基线：`core` 等包内只有占位 `__init__.py`，业务能力按 WP 顺序实现。
 - GUI 仅骨架窗口，无导航与向导（WP9-T1 起）。

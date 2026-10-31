@@ -22,6 +22,12 @@ from uup2iso.core.errors.exit_code import ExitCode
 
 __all__ = [
     "AlreadyRunningError",
+    "ConfigError",
+    "ConfigMigrationError",
+    "ConfigParseError",
+    "ConfigSchemaError",
+    "ConfigSemanticError",
+    "ConfigVersionError",
     "UserCancelledError",
     "DependencyError",
     "InputRejectedError",
@@ -185,6 +191,40 @@ class AlreadyRunningError(Uup2IsoError):
 
     def __init__(self, message: str = "程序已在运行") -> None:
         super().__init__(message)
+
+
+class ConfigError(UsageError):
+    """配置校验失败（退出码 4）。具体错误码由子类固定。"""
+
+
+class ConfigParseError(ConfigError):
+    """V0 语法层失败（``CONFIG_PARSE_ERROR``）。"""
+
+    default_code = ErrorCode.CONFIG_PARSE_ERROR
+
+
+class ConfigSchemaError(ConfigError):
+    """V1 Schema 层失败（``CONFIG_SCHEMA_INVALID``）。"""
+
+    default_code = ErrorCode.CONFIG_SCHEMA_INVALID
+
+
+class ConfigSemanticError(ConfigError):
+    """V2 语义层失败（``CONFIG_SEMANTIC_INVALID``）。"""
+
+    default_code = ErrorCode.CONFIG_SEMANTIC_INVALID
+
+
+class ConfigVersionError(ConfigError):
+    """配置主版本不受支持（``CONFIG_VERSION_UNSUPPORTED``）。"""
+
+    default_code = ErrorCode.CONFIG_VERSION_UNSUPPORTED
+
+
+class ConfigMigrationError(ConfigError):
+    """迁移失败（``CONFIG_MIGRATION_FAILED``）：不写回、保留原文件。"""
+
+    default_code = ErrorCode.CONFIG_MIGRATION_FAILED
 
 
 class InternalError(Uup2IsoError):

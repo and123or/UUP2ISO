@@ -1,0 +1,990 @@
+{
+  "$defs": {
+    "AppSection": {
+      "additionalProperties": true,
+      "description": "无人值守 §4 的应用列表项。",
+      "properties": {
+        "path": {
+          "default": "",
+          "title": "Path",
+          "type": "string"
+        },
+        "args": {
+          "default": "",
+          "title": "Args",
+          "type": "string"
+        }
+      },
+      "title": "AppSection",
+      "type": "object"
+    },
+    "AppsSection": {
+      "additionalProperties": true,
+      "description": "CV-22…CV-25：转换器自带的 app 处理。",
+      "properties": {
+        "skip": {
+          "default": false,
+          "title": "Skip",
+          "type": "boolean"
+        },
+        "level": {
+          "default": 0,
+          "title": "Level",
+          "type": "integer"
+        },
+        "stubFull": {
+          "default": false,
+          "title": "Stubfull",
+          "type": "boolean"
+        },
+        "customList": {
+          "default": "",
+          "title": "Customlist",
+          "type": "string"
+        }
+      },
+      "title": "AppsSection",
+      "type": "object"
+    },
+    "BootSection": {
+      "additionalProperties": true,
+      "description": "CV-14：引导文件刷新（保守模式下禁用）。",
+      "properties": {
+        "updateBootFiles": {
+          "default": false,
+          "title": "Updatebootfiles",
+          "type": "boolean"
+        }
+      },
+      "title": "BootSection",
+      "type": "object"
+    },
+    "CleanupSection": {
+      "additionalProperties": true,
+      "description": "CV-03 / CV-04：组件清理与 ResetBase（后者依赖前者）。",
+      "properties": {
+        "componentCleanup": {
+          "default": true,
+          "title": "Componentcleanup",
+          "type": "boolean"
+        },
+        "resetBase": {
+          "default": false,
+          "title": "Resetbase",
+          "type": "boolean"
+        }
+      },
+      "title": "CleanupSection",
+      "type": "object"
+    },
+    "CompressionKind": {
+      "description": "WIM 压缩类型（配置 §3.3，取值大写，与 `ConvertConfig.ini` 对齐）。",
+      "enum": [
+        "none",
+        "XPRESS",
+        "LZX",
+        "LZMS"
+      ],
+      "title": "CompressionKind",
+      "type": "string"
+    },
+    "ConvertSection": {
+      "additionalProperties": true,
+      "description": "转换选项（配置 §3.3）。",
+      "properties": {
+        "mode": {
+          "default": "wim_only",
+          "enum": [
+            "wim_only",
+            "full"
+          ],
+          "title": "Mode",
+          "type": "string"
+        },
+        "compression": {
+          "$ref": "#/$defs/CompressionKind",
+          "default": "LZX"
+        },
+        "editions": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Editions",
+          "type": "array"
+        },
+        "keepIntermediate": {
+          "default": false,
+          "title": "Keepintermediate",
+          "type": "boolean"
+        },
+        "updates": {
+          "$ref": "#/$defs/UpdatesSection"
+        },
+        "cleanup": {
+          "$ref": "#/$defs/CleanupSection"
+        },
+        "features": {
+          "$ref": "#/$defs/FeaturesSection"
+        },
+        "winre": {
+          "$ref": "#/$defs/WinreSection"
+        },
+        "boot": {
+          "$ref": "#/$defs/BootSection"
+        },
+        "drivers": {
+          "$ref": "#/$defs/DriversSection"
+        },
+        "apps": {
+          "$ref": "#/$defs/AppsSection"
+        },
+        "volumeLabel": {
+          "default": "",
+          "title": "Volumelabel",
+          "type": "string"
+        },
+        "virtualEdition": {
+          "$ref": "#/$defs/VirtualEditionSection"
+        },
+        "esdDecrypt": {
+          "$ref": "#/$defs/EsdDecryptSection"
+        }
+      },
+      "title": "ConvertSection",
+      "type": "object"
+    },
+    "DriversSection": {
+      "additionalProperties": true,
+      "description": "CV-20 / CV-21：转换阶段交给转换器的驱动处理。\n\n与 ``integrate.drivers`` 职责不同：两者都配时以 ``integrate`` 为准并记\n``WARN convert_driver_ignored``（配置 §3.3）。",
+      "properties": {
+        "enabled": {
+          "default": false,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "sourceDir": {
+          "default": "",
+          "title": "Sourcedir",
+          "type": "string"
+        },
+        "scope": {
+          "default": "all",
+          "enum": [
+            "all",
+            "os",
+            "winpe"
+          ],
+          "title": "Scope",
+          "type": "string"
+        }
+      },
+      "title": "DriversSection",
+      "type": "object"
+    },
+    "EntryPoint": {
+      "description": "任务入口（配置 §3.2 `input.mode`）——值即配置文件里写的字符串。",
+      "enum": [
+        "online",
+        "uupFolder",
+        "image"
+      ],
+      "title": "EntryPoint",
+      "type": "string"
+    },
+    "EsdDecryptSection": {
+      "additionalProperties": true,
+      "description": "CV-29：实验性 ESD 解密，MVP 不开放。",
+      "properties": {
+        "enabled": {
+          "default": false,
+          "title": "Enabled",
+          "type": "boolean"
+        }
+      },
+      "title": "EsdDecryptSection",
+      "type": "object"
+    },
+    "ExecutionSection": {
+      "additionalProperties": true,
+      "description": "运行控制（配置 §3.5）。",
+      "properties": {
+        "dryRun": {
+          "default": false,
+          "title": "Dryrun",
+          "type": "boolean"
+        },
+        "resume": {
+          "default": true,
+          "title": "Resume",
+          "type": "boolean"
+        },
+        "hangWarnMinutes": {
+          "default": 10,
+          "title": "Hangwarnminutes",
+          "type": "integer"
+        },
+        "validation": {
+          "$ref": "#/$defs/ValidationSection"
+        }
+      },
+      "title": "ExecutionSection",
+      "type": "object"
+    },
+    "FeaturesSection": {
+      "additionalProperties": true,
+      "description": "CV-05：功能启用。",
+      "properties": {
+        "netfx3": {
+          "default": false,
+          "title": "Netfx3",
+          "type": "boolean"
+        }
+      },
+      "title": "FeaturesSection",
+      "type": "object"
+    },
+    "FetchSection": {
+      "additionalProperties": true,
+      "description": "下载参数（配置 §3.1）。``split`` 与 ``timeout`` 的范围属语义校验。",
+      "properties": {
+        "split": {
+          "default": 8,
+          "title": "Split",
+          "type": "integer"
+        },
+        "maxOverallDownloadLimit": {
+          "default": "",
+          "title": "Maxoveralldownloadlimit",
+          "type": "string"
+        },
+        "proxy": {
+          "default": "",
+          "title": "Proxy",
+          "type": "string"
+        },
+        "timeoutSeconds": {
+          "default": 30,
+          "title": "Timeoutseconds",
+          "type": "integer"
+        }
+      },
+      "title": "FetchSection",
+      "type": "object"
+    },
+    "ImageType": {
+      "description": "输入映像类型（输入 §2.1）。",
+      "enum": [
+        "iso",
+        "wim",
+        "esd",
+        "swm",
+        "unknown"
+      ],
+      "title": "ImageType",
+      "type": "string"
+    },
+    "InputImageRef": {
+      "additionalProperties": true,
+      "description": "入口 C 的输入映像（配置 §3.2）。",
+      "properties": {
+        "path": {
+          "default": "",
+          "title": "Path",
+          "type": "string"
+        },
+        "type": {
+          "$ref": "#/$defs/ImageType",
+          "default": "iso"
+        },
+        "editions": {
+          "items": {
+            "type": "integer"
+          },
+          "title": "Editions",
+          "type": "array"
+        }
+      },
+      "title": "InputImageRef",
+      "type": "object"
+    },
+    "InputSection": {
+      "additionalProperties": true,
+      "description": "输入与起始阶段（配置 §3.2）。",
+      "properties": {
+        "mode": {
+          "$ref": "#/$defs/EntryPoint",
+          "default": "online"
+        },
+        "startStage": {
+          "default": "Convert",
+          "title": "Startstage",
+          "type": "string"
+        },
+        "image": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/InputImageRef"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "uupFolder": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/InputUupFolder"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "title": "InputSection",
+      "type": "object"
+    },
+    "InputUupFolder": {
+      "additionalProperties": true,
+      "description": "入口 B 的本地 UUP 文件夹。",
+      "properties": {
+        "path": {
+          "default": "",
+          "title": "Path",
+          "type": "string"
+        }
+      },
+      "title": "InputUupFolder",
+      "type": "object"
+    },
+    "IntegrateDrivers": {
+      "additionalProperties": true,
+      "description": "集成 §4：驱动。",
+      "properties": {
+        "paths": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Paths",
+          "type": "array"
+        },
+        "recursive": {
+          "default": true,
+          "title": "Recursive",
+          "type": "boolean"
+        },
+        "requireSignature": {
+          "default": true,
+          "title": "Requiresignature",
+          "type": "boolean"
+        },
+        "conflict": {
+          "default": "newerVersion",
+          "enum": [
+            "newerVersion",
+            "firstWins",
+            "ask"
+          ],
+          "title": "Conflict",
+          "type": "string"
+        }
+      },
+      "title": "IntegrateDrivers",
+      "type": "object"
+    },
+    "IntegrateLanguage": {
+      "additionalProperties": true,
+      "description": "集成 §5：语言包 / LIP / FOD。",
+      "properties": {
+        "add": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Add",
+          "type": "array"
+        },
+        "remove": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Remove",
+          "type": "array"
+        },
+        "fod": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Fod",
+          "type": "array"
+        }
+      },
+      "title": "IntegrateLanguage",
+      "type": "object"
+    },
+    "IntegrateRegistry": {
+      "additionalProperties": true,
+      "description": "集成 §6：注册表导入。",
+      "properties": {
+        "imports": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Imports",
+          "type": "array"
+        },
+        "strict": {
+          "default": false,
+          "title": "Strict",
+          "type": "boolean"
+        }
+      },
+      "title": "IntegrateRegistry",
+      "type": "object"
+    },
+    "IntegrateSection": {
+      "additionalProperties": true,
+      "description": "集成阶段配置（可作为预设片段深拷贝，配置 §4.1）。",
+      "properties": {
+        "updates": {
+          "$ref": "#/$defs/IntegrateUpdates"
+        },
+        "drivers": {
+          "$ref": "#/$defs/IntegrateDrivers"
+        },
+        "language": {
+          "$ref": "#/$defs/IntegrateLanguage"
+        },
+        "registry": {
+          "$ref": "#/$defs/IntegrateRegistry"
+        }
+      },
+      "title": "IntegrateSection",
+      "type": "object"
+    },
+    "IntegrateUpdates": {
+      "additionalProperties": true,
+      "description": "集成 §3：离线更新。",
+      "properties": {
+        "paths": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Paths",
+          "type": "array"
+        },
+        "recursive": {
+          "default": true,
+          "title": "Recursive",
+          "type": "boolean"
+        },
+        "order": {
+          "default": "auto",
+          "enum": [
+            "auto",
+            "name",
+            "mtime"
+          ],
+          "title": "Order",
+          "type": "string"
+        }
+      },
+      "title": "IntegrateUpdates",
+      "type": "object"
+    },
+    "MetaSection": {
+      "additionalProperties": true,
+      "description": "任务元信息（配置 §3.1）。``id`` 为 8 位十六进制短 id，创建后终身不变。",
+      "properties": {
+        "id": {
+          "default": "",
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "default": "",
+          "title": "Name",
+          "type": "string"
+        },
+        "createdAt": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Createdat"
+        },
+        "updatedAt": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Updatedat"
+        },
+        "appVersion": {
+          "default": "",
+          "title": "Appversion",
+          "type": "string"
+        },
+        "notes": {
+          "default": "",
+          "title": "Notes",
+          "type": "string"
+        }
+      },
+      "title": "MetaSection",
+      "type": "object"
+    },
+    "OptimizeSection": {
+      "additionalProperties": true,
+      "description": "优化预设的内联快照，形态与精简一致。",
+      "properties": {
+        "origin": {
+          "$ref": "#/$defs/PresetOrigin"
+        },
+        "ruleIds": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Ruleids",
+          "type": "array"
+        },
+        "params": {
+          "additionalProperties": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Params",
+          "type": "object"
+        }
+      },
+      "title": "OptimizeSection",
+      "type": "object"
+    },
+    "OutputSection": {
+      "additionalProperties": true,
+      "description": "输出规则（配置 §3.4）。",
+      "properties": {
+        "dir": {
+          "default": "",
+          "title": "Dir",
+          "type": "string"
+        },
+        "nameTemplate": {
+          "default": "{edition}_{build}_{arch}_{lang}",
+          "title": "Nametemplate",
+          "type": "string"
+        },
+        "type": {
+          "$ref": "#/$defs/OutputType",
+          "default": "iso"
+        },
+        "collision": {
+          "default": "suffix",
+          "enum": [
+            "suffix",
+            "ask",
+            "overwrite"
+          ],
+          "title": "Collision",
+          "type": "string"
+        },
+        "verifyLevel": {
+          "default": 2,
+          "title": "Verifylevel",
+          "type": "integer"
+        },
+        "sidecar": {
+          "$ref": "#/$defs/SidecarSection"
+        }
+      },
+      "title": "OutputSection",
+      "type": "object"
+    },
+    "OutputType": {
+      "description": "产物形态（配置 §3.4 `output.type`）。",
+      "enum": [
+        "iso",
+        "wim",
+        "esd",
+        "swm"
+      ],
+      "title": "OutputType",
+      "type": "string"
+    },
+    "PresetOrigin": {
+      "additionalProperties": true,
+      "description": "预设来源，仅用于追溯与「是否有更新」提示（不自动更新）。",
+      "properties": {
+        "presetId": {
+          "default": "",
+          "title": "Presetid",
+          "type": "string"
+        },
+        "presetVersion": {
+          "default": "",
+          "title": "Presetversion",
+          "type": "string"
+        },
+        "snapshottedAt": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Snapshottedat"
+        }
+      },
+      "title": "PresetOrigin",
+      "type": "object"
+    },
+    "SidecarSection": {
+      "additionalProperties": true,
+      "description": "伴生文件开关（输出 §8）。",
+      "properties": {
+        "sha256": {
+          "default": true,
+          "title": "Sha256",
+          "type": "boolean"
+        },
+        "readme": {
+          "default": true,
+          "title": "Readme",
+          "type": "boolean"
+        },
+        "manifest": {
+          "default": false,
+          "title": "Manifest",
+          "type": "boolean"
+        }
+      },
+      "title": "SidecarSection",
+      "type": "object"
+    },
+    "SlimSection": {
+      "additionalProperties": true,
+      "description": "精简预设的内联快照：``origin`` + ``ruleIds`` + ``params``（配置 §4.2）。",
+      "properties": {
+        "origin": {
+          "$ref": "#/$defs/PresetOrigin"
+        },
+        "ruleIds": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Ruleids",
+          "type": "array"
+        },
+        "params": {
+          "additionalProperties": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Params",
+          "type": "object"
+        }
+      },
+      "title": "SlimSection",
+      "type": "object"
+    },
+    "SourceSection": {
+      "additionalProperties": true,
+      "description": "入口 A 的数据源选择（配置 §3.1：入口 A 必填）。",
+      "properties": {
+        "baseUrl": {
+          "default": "",
+          "title": "Baseurl",
+          "type": "string"
+        },
+        "build": {
+          "default": "",
+          "title": "Build",
+          "type": "string"
+        },
+        "revision": {
+          "default": "",
+          "title": "Revision",
+          "type": "string"
+        },
+        "language": {
+          "default": "",
+          "title": "Language",
+          "type": "string"
+        },
+        "edition": {
+          "default": "",
+          "title": "Edition",
+          "type": "string"
+        },
+        "channel": {
+          "default": "",
+          "title": "Channel",
+          "type": "string"
+        }
+      },
+      "title": "SourceSection",
+      "type": "object"
+    },
+    "UnattendSection": {
+      "additionalProperties": true,
+      "description": "无人值守配置片段（无人值守 §4）。\n\n具体字段在 WP7-T2 落地；这里保留 ``computerName`` 等核心项与「未知字段放行」，\n使预设互导不会因为新字段而失败。",
+      "properties": {
+        "enabled": {
+          "default": false,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "computerName": {
+          "default": "",
+          "title": "Computername",
+          "type": "string"
+        },
+        "productKey": {
+          "default": "",
+          "title": "Productkey",
+          "type": "string"
+        },
+        "timeZone": {
+          "default": "",
+          "title": "Timezone",
+          "type": "string"
+        },
+        "acceptEula": {
+          "default": true,
+          "title": "Accepteula",
+          "type": "boolean"
+        },
+        "skipOobePrivacy": {
+          "default": true,
+          "title": "Skipoobeprivacy",
+          "type": "boolean"
+        },
+        "apps": {
+          "items": {
+            "$ref": "#/$defs/AppSection"
+          },
+          "title": "Apps",
+          "type": "array"
+        },
+        "scripts": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Scripts",
+          "type": "array"
+        },
+        "injectIntoWim": {
+          "default": false,
+          "title": "Injectintowim",
+          "type": "boolean"
+        }
+      },
+      "title": "UnattendSection",
+      "type": "object"
+    },
+    "UpdatesSection": {
+      "additionalProperties": true,
+      "description": "CV-02：更新集成方式。",
+      "properties": {
+        "integrate": {
+          "default": true,
+          "title": "Integrate",
+          "type": "boolean"
+        },
+        "mode": {
+          "default": "in_image",
+          "enum": [
+            "in_image",
+            "external"
+          ],
+          "title": "Mode",
+          "type": "string"
+        }
+      },
+      "title": "UpdatesSection",
+      "type": "object"
+    },
+    "ValidationSection": {
+      "additionalProperties": true,
+      "description": "严格开关（配置 §3.5：唯一归属是 TaskConfig）。",
+      "properties": {
+        "strictUnknownFields": {
+          "default": false,
+          "title": "Strictunknownfields",
+          "type": "boolean"
+        }
+      },
+      "title": "ValidationSection",
+      "type": "object"
+    },
+    "VirtualEditionSection": {
+      "additionalProperties": true,
+      "description": "CV-06 / CV-P1…P8：实验性，MVP 不开放（``enabled=true`` 即语义失败）。",
+      "properties": {
+        "enabled": {
+          "default": false,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "editions": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Editions",
+          "type": "array"
+        }
+      },
+      "title": "VirtualEditionSection",
+      "type": "object"
+    },
+    "WinreSection": {
+      "additionalProperties": true,
+      "description": "CV-10 / CV-11：WinRE 处理。",
+      "properties": {
+        "skip": {
+          "default": false,
+          "title": "Skip",
+          "type": "boolean"
+        },
+        "update": {
+          "default": false,
+          "title": "Update",
+          "type": "boolean"
+        }
+      },
+      "title": "WinreSection",
+      "type": "object"
+    }
+  },
+  "additionalProperties": true,
+  "description": "任务配置权威 Schema（配置规范 §3）。由 src/uup2iso/core/models/config.py 生成，请勿手改。",
+  "properties": {
+    "schemaVersion": {
+      "title": "Schemaversion",
+      "type": "string"
+    },
+    "meta": {
+      "$ref": "#/$defs/MetaSection"
+    },
+    "input": {
+      "$ref": "#/$defs/InputSection"
+    },
+    "source": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/SourceSection"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "fetch": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/FetchSection"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "convert": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ConvertSection"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "slim": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/SlimSection"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "optimize": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/OptimizeSection"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "integrate": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/IntegrateSection"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "unattend": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/UnattendSection"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "output": {
+      "$ref": "#/$defs/OutputSection"
+    },
+    "execution": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ExecutionSection"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    }
+  },
+  "required": [
+    "schemaVersion",
+    "meta",
+    "input",
+    "output"
+  ],
+  "title": "UUP2ISO TaskConfig",
+  "type": "object",
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}

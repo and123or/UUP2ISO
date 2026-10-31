@@ -11,6 +11,20 @@
 from __future__ import annotations
 
 from uup2iso.core.models.build import BuildInfo
+from uup2iso.core.models.config import (
+    CONFIG_SCHEMA_VERSION,
+    ConfigIssue,
+    ConvertSection,
+    ExecutionSection,
+    FingerprintContext,
+    InputSection,
+    MetaSection,
+    OutputSection,
+    TaskConfig,
+    default_task_config,
+    iter_unknown_fields,
+    new_task_id,
+)
 from uup2iso.core.models.download import DownloadedFile, DownloadFailure, DownloadReport
 from uup2iso.core.models.enums import (
     Architecture,
@@ -29,12 +43,28 @@ from uup2iso.core.models.enums import (
 )
 from uup2iso.core.models.image import UNKNOWN_EDITION, Edition, ImageInfo
 from uup2iso.core.models.manifest import SCHEMA_VERSION, Manifest, ManifestSource, UupFile
+from uup2iso.core.models.preset import PresetDocument, PresetIssue, PresetRuleItems
 from uup2iso.core.models.rules import RuleOutcome, RuleReport
 from uup2iso.core.models.tools import EngineCapabilities, ToolInfo, ToolSource
 from uup2iso.core.models.verification import VerifyFinding, VerifyReport, VerifySeverity
 
 __all__ = [
+    "CONFIG_SCHEMA_VERSION",
     "SCHEMA_VERSION",
+    "ConfigIssue",
+    "ConvertSection",
+    "ExecutionSection",
+    "FingerprintContext",
+    "InputSection",
+    "MetaSection",
+    "OutputSection",
+    "PresetDocument",
+    "PresetIssue",
+    "PresetRuleItems",
+    "TaskConfig",
+    "default_task_config",
+    "iter_unknown_fields",
+    "new_task_id",
     "UNKNOWN_EDITION",
     "Architecture",
     "BuildInfo",

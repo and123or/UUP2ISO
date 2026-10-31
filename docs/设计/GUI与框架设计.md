@@ -1,6 +1,6 @@
 # UUP2ISO GUI 界面与框架设计
 
-> 版本：v0.10
+> 版本：v0.11
 > 分类：设计（结构与界面） ｜ 目录：`docs/设计/`（草案）
 > 依据：`docs/需求/需求分析.md`（FR0–FR10）
 > 配套：`docs/设计/软件架构图.md`、`docs/设计/软件流程图.md`
@@ -141,7 +141,7 @@ UUP2ISO/
 ├─ .venv/                        # 工作空间虚拟环境（强制；.gitignore 排除，不入库）
 ├─ src/
 │  ├─ uup2iso/                   # 可安装包（.venv 内 pip install -e .）
-│  │  ├─ core/                   # 领域模型与接口（无外部依赖）
+│  │  ├─ core/                   # 领域模型与接口（唯一外部依赖：pydantic，见 §3.3）
 │  │  │  ├─ models/              # BuildInfo, UupFile, ImageInfo, Edition, PipelineContext ...
 │  │  │  ├─ pipeline/            # Stage 定义, 阶段基类, 上下文
 │  │  │  ├─ options/             # ConvertOptions, SlimOptions, OptimizeOptions, IntegrateOptions, UnattendOptions, OutputOptions

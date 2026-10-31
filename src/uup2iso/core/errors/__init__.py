@@ -14,6 +14,12 @@ from __future__ import annotations
 
 from uup2iso.core.errors.base import (
     AlreadyRunningError,
+    ConfigError,
+    ConfigMigrationError,
+    ConfigParseError,
+    ConfigSchemaError,
+    ConfigSemanticError,
+    ConfigVersionError,
     DependencyError,
     InputRejectedError,
     InternalError,
@@ -33,6 +39,12 @@ from uup2iso.core.errors.context import (
 from uup2iso.core.errors.exit_code import ExitCode
 
 __all__ = [
+    "ConfigError",
+    "ConfigMigrationError",
+    "ConfigParseError",
+    "ConfigSchemaError",
+    "ConfigSemanticError",
+    "ConfigVersionError",
     "MAX_EXCERPT_LINES",
     "AlreadyRunningError",
     "UserCancelledError",

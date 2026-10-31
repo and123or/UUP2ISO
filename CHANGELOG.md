@@ -1,5 +1,64 @@
 # CHANGELOG
 
+## 0.1.13 — WP0-T6 设置/预设/任务配置存储
+
+> 依据：配置 §2、§3、§4、§8、§9；架构 §9。验收：符合配置 §3–§4、未知字段可忽略可严格、指纹排除路径。
+
+### 新增
+- **`core/models/config.py`（pydantic v2）**：`TaskConfig` 及 15 个配置段模型，覆盖配置 §3.1–§3.5 的全部字段
+  （含 FR3 的 CV-01…CV-29 承载字段），并提供：
+  - `TaskConfig.fingerprint()`：`sha256(canonical_json)`，**排除 meta / `input.*.path` / `output.dir` / `fetch.proxy`**（§8.2）；
+  - `TaskConfig.check_semantics()`：V2 语义校验（20+ 条规则，见下）；
+  - `iter_unknown_fields()`：递归收集未知字段路径（§7）。
+- **`core/models/preset.py`**：`PresetDocument` + `check_preset()`；规则类预设按 `ruleId` 校验，
+  未知 id 整份拒绝；配置类预设走片段模型校验（§4.1–§4.2）。
+- **`infrastructure/storage/config_loader.py`**：V0（UTF-8/无 BOM/JSON 语法）→ 版本与迁移 → V1（draft-07 Schema）
+  → 未知字段策略 → V2 语义 → 指纹；`save_task_config()` 原子写（临时文件 + `Path.replace`）。
+- **`infrastructure/storage/settings_store.py`**：`config\settings.json`，点分键读写、读永不抛错、
+  保存原子、`as_mapping()` 对含 passwd/token/secret 的键脱敏。
+- **`infrastructure/storage/preset_store.py`**：`presets\<kind>\<id>.json` 的增删查与导入导出。
+- **`src/uup2iso/schemas/taskconfig.schema.json`**：由模型生成的权威 Schema（draft-07，22 KB），
+  作为包数据随包发布；`scripts/gen_schema.py --check` 与测试共同守护「模型改了却没重新生成」。
+
+### 决策
+| # | 决策 | 理由 |
+| --- | --- | --- |
+| D1 | `TaskConfig` 用 pydantic v2（core 的纯值对象仍是 dataclass） | T3 已预留；配置要 Schema/序列化/校验 |
+| D2 | 数值**范围**放 V2 而非 `Field(ge=..)` | 配置 §5 要求超范围报 `CONFIG_SEMANTIC_INVALID`，pydantic 约束会落成 Schema 错误 |
+| D3 | `extra="allow"` + 路径收集；严格模式由加载器判定 | §7 默认忽略并收集，严格开关唯一归属 TaskConfig（§3.5） |
+| D4 | Schema 单一来源放包内，打包时复制到 `程序目录\schemas\` | 避免仓库根与包内两份副本互相漂移；已回写 配置 §2 |
+| D5 | 语义错误按**首条问题**的具体码抛出（如 `OUTPUT_TYPE_UNSUPPORTED`） | SWM 是「能力未验证」不是「配置写错」，GUI 要能分开呈现 |
+| D6 | `startStage` 默认 `Convert`；在线入口可选最早阶段取 `Convert` | 配置 §3.2 的枚举不含 `Fetch`，否则默认配置一创建就判自己语义非法 |
+
+### V2 语义规则（`check_semantics`）
+`startStage` 合法性与「不早于输入支持的最早阶段」、`mode=online` 必须有 `source`、
+`mode=image` 必须有 `path`+`editions`（且索引在探测表内）、`mode=uupFolder` 必须有路径、
+`virtualEdition.enabled`/`esdDecrypt.enabled` 一律拒绝（MVP）、`resetBase` 依赖 `componentCleanup`、
+保守模式下禁 `LZMS` 与 ESD 输出、`output.type=swm` 拒绝、`fetch.split`/`timeout`/`apps.level`/
+`hangWarnMinutes`/`verifyLevel` 范围检查（**不夹紧**）。
+
+### 测试
+- `test_config_models.py`（10）：必填项、§5 默认值逐条对照、指纹排除路径/meta/代理、未知字段收集、别名序列化。
+- `test_config_validation.py`（30）：V0 三种失败（BOM/坏 JSON/非 UTF-8）、V1（缺段/错枚举/错类型）、
+  V2 全部规则、未知字段松紧两模式与参数覆盖、迁移（备份、幂等、缺迁移器不改原文件）、原子保存。
+- `test_config_schema.py`（7）：Schema 不漂移、draft-07 合法、必填项、未知字段放行、样例配置通过。
+- `test_settings_store.py`（7）+ `test_preset_store.py`（12）：默认值、点分键、脱敏、预设增删查与导入导出、
+  未知 ruleId 拒绝。
+- 全量：`pytest 286 passed`；`mypy 66 files`；`ruff` / `format` 全绿。
+
+### 变更（文档）
+- `GUI框架` v0.10 → **v0.11**：`core` 的「无外部依赖」注明 pydantic 例外。
+- `配置` v0.2 → **v0.3**：§2 补 Schema 单一来源与打包位置说明。
+- `术语表 §1.2` 同步两处版本。
+
+### 已知限制
+- **`UnattendSection` 只落核心字段**（`computerName`/`productKey`/分区/账户等完整字段属 WP7-T2），
+  当前靠 `extra="allow"` 保证预设互导不失败。
+- **迁移器注册表为空**：只有 1.0 一个版本，暂无需要迁移的旧格式；迁移路径已用测试注入的
+  迁移器验证（备份、幂等、失败不改写）。
+- **未实现 ConfigResolver**（架构 §9 的 TaskConfig > settings 合并）：留给 WP1-T2/T5，本轮只做两套存储。
+- 路径存在性只提示不阻断（§6）；`path_not_portable` 仅在绝对路径不存在时产生。
+
 ## 0.1.12 — WP0-T5 ProcessRunner 与解析器
 
 > 依据：进程 §3、§4、§5、§7、§9；流程图 §17。验收：外部进程不进 UI 线程、错误对象含原码/通道/最后 20 行、

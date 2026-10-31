@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "uup2iso"
-version = "0.1.12"
+version = "0.1.13"
 description = "UUP -> ISO 构建与精简工具（Windows 10/11 x64，PySide6 + PyInstaller）"
 readme = "README.md"
 requires-python = ">=3.12,<3.14"
@@ -57,6 +57,9 @@ zip-safe = false
 where = ["src"]
 include = ["uup2iso*"]
 
+[tool.setuptools.package-data]
+uup2iso = ["schemas/*.json"]
+
 # ---------------------------------------------------------------------------
 # 工具链（全部由 .venv 内的解释器执行，见 docs/治理/版本与变更管理.md §2）
 # ---------------------------------------------------------------------------
@@ -104,5 +107,6 @@ namespace_packages = true
 explicit_package_bases = true
 
 [[tool.mypy.overrides]]
-module = ["qfluentwidgets.*", "qfluentwidgets"]
+module = ["qfluentwidgets.*", "qfluentwidgets", "jsonschema.*", "jsonschema"]
+# jsonschema 官方未提供 py.typed；只用到 Draft7Validator，忽略缺失 stub 即可（不引入 types-jsonschema）
 ignore_missing_imports = true

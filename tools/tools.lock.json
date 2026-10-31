@@ -1,0 +1,7 @@
+{
+  "schemaVersion": "1.0",
+  "generatedAt": "2026-10-31T17:00:00+08:00",
+  "identitySha256": "d2900ed85f8f7313b8ad82e3bbdda1d13a514f62c4a63ffe0da57edb499d2b2b",
+  "tools": [],
+  "note": "锁定清单为空：真实 SHA256 必须由我们用干净环境下载后自算，不能编造。填充属 WP0-T8（缺失自动获取）与 WP11-T2（内置二进制与许可）；在此之前工具按 unmanaged 处理（可定位、不校验哈希），并在自检中记 WARN tool_unmanaged。"
+}

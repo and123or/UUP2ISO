@@ -1,5 +1,58 @@
 # CHANGELOG
 
+## 0.1.14 — WP0-T7 工具提供与自检
+
+> 依据：引擎 §3.1、§3.2、§4、§5、§9.1；进程 §2.1–§2.4。
+> 验收：缺失与降级均可在日志解释；`capability_degraded` 可查。
+
+### 新增（`src/uup2iso/infrastructure/tools/`）
+- `lock.py`：`tools\tools.lock.json` 解析（`LockedTool`/`ToolLock`）、**按 §9.1 自指定义计算 `identitySha256`**
+  （置空该字段 → 规范化序列化 → SHA256）、篡改检出后回退内置只读副本。
+- `capabilities.py`：版本 → `EngineCapabilities` 推导；阈值表标注「待实测校准」；**版本未知即保守**
+  （无 LZMS、无 `--ref`）。
+- `route.py`：引擎 §3.2 的 R1–R11 静态路由表 + `select_route()`；R3 明确**不降级**、R5 无备用、R6/R7 仅 DISM。
+- `provider.py`：`ToolProvider` 实现 `IToolProvider` —— 定位（`tools\ → 设置 → PATH → System32`）、
+  白名单与 SHA256 校验、版本探测（10s 超时）、`probe_all()` 自检报告、能力缓存、
+  管理员判定；`ensure()` 缺失时抛 `TOOL_MISSING` 并给手动指引。
+- `tools/tools.lock.json`：随包**空注册表**（见决策 D1），含 `note` 说明填充计划。
+
+### 决策
+| # | 决策 | 理由 |
+| --- | --- | --- |
+| D1 | 清单先发空注册表，工具记 `unmanaged`（可定位、不校验哈希） | 真实 SHA256 必须自算，绝不编造；填充属 WP0-T8 / WP11-T2 |
+| D2 | 清单自校验严格按 §9.1 自指定义 | 文档明确禁止对含当前值的文本求哈希 |
+| D3 | 版本阈值写成常量表并标注待校准，未知即保守 | 引擎 §4.1 原文即「阈值待实测校准」 |
+| D4 | 降级以结构化 `ToolReport` 承载，`.log_lines()` 输出 `event=tool_check` / `capability_degraded` | LogSink 在 T10，先产出可直接写日志的形态 |
+| D5 | `ensure()` 只做「找不到→抛错+指引」，不实现下载 | 自动获取是 WP0-T8 的职责，不在此半实现 |
+
+### 自检输出（可 grep）
+```
+event=tool_check tool=aria2c found=yes source=packaged version=1.37.0 managed=no path=...\tools\aria2c.exe
+event=tool_check tool=wimlib-imagex found=yes source=packaged version=1.11.0 managed=no
+capability_degraded tool=wimlib-imagex capability=esd_output reason=wimlib 版本低于写 LZMS 的阈值，ESD 输出不可用
+WARN tool_unmanaged tool=aria2c
+```
+
+### 测试
+- `test_tools_lock.py`（9）：自指哈希与写入值无关、篡改检出、缺失/损坏回退、写读回环、随包清单自洽。
+- `test_tools_capabilities.py`（8）：版本解析、比较、wimlib 新旧两档、未知版本保守、DISM 挂载/不校验。
+- `test_tools_route.py`（7）：11 条路由齐备、主备切换、**R3 不降级**、R5 无备用、R6 仅 DISM。
+- `test_tools_provider.py`（20）：定位三级优先级、哈希不符即拒、转换器目录+`version.txt`、
+  版本探测与能力联动、无法解析即降级、必需缺失阻断、`oscdimg` 缺失不阻断且提示 ADK、
+  `ensure` 抛错带指引、能力缓存落盘、`select_route` 联动、管理员注入。
+- 全量：`pytest 334 passed`；`mypy 71 files`；`ruff` / `format` 全绿。
+
+### 变更（文档）
+- `引擎` v0.3 → **v0.4**：§9.1 补「清单落地状态」（空注册表 + unmanaged + 填充计划）；`术语表 §1.2` 同步。
+
+### 已知限制
+- **清单为空**：当前没有任何哈希校验，用户名下被替换的工具不会被发现，只记 `tool_unmanaged`。
+- **`oscdimg` 版本恒为 unknown**：它没有版本参数，需读 PE 版本资源（未实现），因此恒进保守模式且不参与
+  ESD/LZMS 判定（它本来也只做封装）。
+- **未实现自动获取**（`ensure` 不下载）、**未实现「按清单对齐」**：均属 WP0-T8 / WP0-T8a。
+- 能力缓存只按 `size/mtime` 失效，未在缓存里存版本比对逻辑；缓存损坏直接忽略（下次重探）。
+- 真实工具联调未做：`probe_all` 已具备真跑能力，但 M0 环境没有这些 exe，本轮全部用夹具回放验证。
+
 ## 0.1.13 — WP0-T6 设置/预设/任务配置存储
 
 > 依据：配置 §2、§3、§4、§8、§9；架构 §9。验收：符合配置 §3–§4、未知字段可忽略可严格、指纹排除路径。

@@ -3,3 +3,4 @@ CLI方式运行
 
 GUI方式运行
 .venv\Scripts\uup2iso-gui.exe
+.venv\Scripts\python -m uup2iso.gui.app

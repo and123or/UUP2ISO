@@ -1,5 +1,42 @@
 # CHANGELOG
 
+## 0.1.11 — WP0-T4 统一错误模型与退出码
+
+> 依据：GUI 框架 §5.6、进程 §9.1/§9.2、需求 FR9.3。验收：错误对象含阶段/文件/工具/返回码/原始片段。
+
+### 新增（`src/uup2iso/core/errors/`）
+- `exit_code.py`：`ExitCode`（0 成功 / 1 警告 / 2 失败 / 3 取消 / 4 参数或依赖 / 5 已有实例），
+  与 GUI 框架 §5.6 逐条对齐；`is_success` 把 0 与 1 都算完成。
+- `codes.py`：`ErrorCode` 38 个稳定码，全部取自文档（下载 §2.4/§3.2、输入 §3/§9、配置 §2/§3.5、
+  进程 §9.1、输出 §4/§6、规则 §8、集成 §5、无人值守 §5、日志 §6.1），并提供 `slug` 生成小写形式。
+- `context.py`：`ErrorContext`（阶段/子步骤/文件/工具/原始返回码/命令/通道/HRESULT/耗时/输出片段）
+  + `tail_lines()`（默认 20 行，进程 §9.2）+ `extract_hresult()`（取最后一个 `0x????????`）。
+- `base.py`：`Uup2IsoError` 及其分类子类 `UsageError` / `DependencyError` / `InputRejectedError`（均 4）、
+  `StageExecutionError`（2）、`UserCancelledError`（3）、`AlreadyRunningError`（5）、`InternalError`（2）；
+  `to_dict()` 输出日志 §6.1 的 `{"error":..,"code":..,"message":..}` + 现场字段；`exit_code_for()` 兜底为 2。
+
+### 决策
+| # | 决策 | 理由 |
+| --- | --- | --- |
+| D1 | 异常**自己带退出码**，能力代码只抛语义化子类 | 退出码不散落在 CLI/GUI 的 if-else 里 |
+| D2 | 除取消/单实例/内部错误外，**`code` 必填**，缺省即 `TypeError` | 防止兜底成 `INTERNAL_ERROR` 掩盖分类缺失 |
+| D3 | 退出码 1（有警告）**不是异常**，由编排层按警告折算 | 日志 §5.3 要求「部分成功」= succeeded + 失败明细 + 退出码 1 |
+| D4 | 错误码只收录文档已登记的，新增必须先改规范 | 守住「先改文档再改代码」 |
+
+### 测试
+- `tests/test_errors.py`（25 项）：退出码表与逐类映射、缺 `code` 必须报错、`to_dict` 形状与现场字段、
+  `tail_lines` 20 行截断、`extract_hresult` 取末尾、`exit_code_for` 对未知异常返回 2。
+- 全量：`pytest 151 passed`；`mypy 52 files`；`ruff check` / `ruff format --check` 全绿。
+
+### 变更
+- 异常命名遵循 ruff N818（错误类以 `Error` 结尾）：`StageFailure` → `StageExecutionError`、
+  `Cancelled` → `UserCancelledError`（后者刻意避开 `asyncio.CancelledError` 的语义混淆）。
+
+### 已知限制
+- 尚未在实际业务流程中使用：CLI 的 JSON 错误输出与退出码映射属 WP1-T6，届时改为直接 `error.to_dict()`。
+- `ErrorCode` 仅覆盖文档已登记的码；`OUTPUT_VERIFY_FAILED` 之类「可能将来需要」的码未提前发明。
+- 异常→重试白名单（编排 §7）不在本轮：重试判定需要阶段上下文，归 WP1-T2。
+
 ## 0.1.10 — 修复 GUI 入口：窗口秒退 + 进程无法退出
 
 > 触发：手动运行 `.venv\Scripts\uup2iso-gui.exe`（或 `python -m uup2iso.gui.app`）时，

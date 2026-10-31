@@ -124,7 +124,25 @@ def collect() -> dict[str, object]:
     }
 
 
+def _ensure_utf8_stdio() -> None:
+    """把 stdout/stderr 切到 UTF-8。
+
+    必要性（CI 实测）：GitHub Windows 运行器的 stdout 是 cp1252，脚本里的中文
+    （如「结果: OK」）会触发 ``UnicodeEncodeError: 'charmap' codec ...``，
+    把一条本应通过的自检变成失败。这里就地重配流，不依赖外部环境变量。
+    """
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            if (getattr(stream, "encoding", "") or "").lower().replace("-", "") != "utf8":
+                stream.reconfigure(encoding="utf-8", errors="backslashreplace")
+        except (AttributeError, ValueError, OSError):
+            # 非文本流（如被重定向到管道且不支持重配）时保持原样
+            pass
+
+
 def main(argv: list[str] | None = None) -> int:
+    _ensure_utf8_stdio()
+
     parser = argparse.ArgumentParser(description="UUP2ISO 运行环境自检")
     parser.add_argument("--json", action="store_true", help="以 JSON 输出（CI 消费）")
     args = parser.parse_args(argv)

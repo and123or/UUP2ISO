@@ -1,5 +1,29 @@
 # CHANGELOG
 
+## 0.1.8 — 修复 CI 首次运行失败（控制台编码）
+
+> 实测：CI 首个 step「环境一致性自检」直接红，`env_check.py` 第 149 行
+> `UnicodeEncodeError: 'charmap' codec can't encode characters in position 2-3`。
+> 5 项检查实际全部 PASS，崩溃只发生在打印中文「结果: OK」这一步。
+
+### 修复
+- **`scripts/env_check.py` 强制 UTF-8 输出**：GitHub Windows 运行器的 stdout 为 cp1252，
+  中文无法编码。新增 `_ensure_utf8_stdio()`，在 `main()` 入口把 stdout/stderr
+  `reconfigure(encoding="utf-8", errors="backslashreplace")`，不依赖外部环境变量；
+  失败时静默降级（管道/非文本流场景）。
+- **`.github/workflows/ci.yml` 显式声明编码**：job 级 `env` 增加 `PYTHONUTF8: "1"` 与
+  `PYTHONIOENCODING: "utf-8"`，与脚本内重配形成双保险，也覆盖 pytest 等其它步骤的中文输出。
+
+### 新增
+- `tests/test_scripts.py::test_env_check_survives_cp1252_console`：以 `PYTHONIOENCODING=cp1252`
+  起子进程复现 CI 控制台，断言退出码 0、无 `UnicodeEncodeError`、含「结果: OK」。
+  把这次的 CI-only 失败变成本地可复现的门禁，不再依赖推送到远端才发现。
+
+### 已知限制
+- 本机无法完整复刻 GitHub Windows 运行器（本地 cp936 与 runner 的 cp1252 不同），
+  该修复以「强制 UTF-8 + 子进程 cp1252 复现」双重手段覆盖，最终仍以 Actions 实测为准。
+- 若后续还有 CI-only 失败（如 Qt 离屏插件），需按同样方式在本地构造等价条件再加门禁。
+
 ## 0.1.7 — 纳入追踪与行尾固定（首次触发 CI）
 
 ### 新增

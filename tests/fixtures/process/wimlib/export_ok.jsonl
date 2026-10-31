@@ -1,0 +1,4 @@
+{"channel":"stdout","text":"Scanning \"install.wim\" 25%\n"}
+{"delay_ms":5,"channel":"stdout","text":"Writing WIM 100%\n"}
+{"channel":"stdout","text":"Successfully exported 1 image(s)\n"}
+{"exit":0}

@@ -1,5 +1,51 @@
 # CHANGELOG
 
+## 0.1.12 — WP0-T5 ProcessRunner 与解析器
+
+> 依据：进程 §3、§4、§5、§7、§9；流程图 §17。验收：外部进程不进 UI 线程、错误对象含原码/通道/最后 20 行、
+> 并发固定镜像 1 / 下载 1、夹具回放测试通过。
+
+### 新增（`src/uup2iso/infrastructure/process/`，9 个模块）
+- `runner.py`：`ProcessRunner` —— 并发闸门 → 启动 → 双路读取 → 解码/分类 → 取消阶梯 → 看门狗 → 错误组装。
+  取消按 §7.1 四步（Ctrl-Break 5s → terminate 2s → `taskkill /T /F`），**无控制台时跳过第一步**。
+- `backend.py`：`RealBackend`（`asyncio.create_subprocess_exec` + `CREATE_NO_WINDOW|CREATE_NEW_PROCESS_GROUP`）
+  与 `FakeBackend`（`.jsonl` 夹具回放，§11 要求的 `FakeProcessBackend`）；`RunSpec` 承载工具/参数/工作目录。
+- `decoder.py`：`LineSplitter` 兼容 `\n`/`\r\n`/**单独 `\r` 重绘**、64 KB 截断、无换行残留（`partial`）；
+  `decode_line` 走「首选 → utf-8 → cp936 → latin-1」回退并回报实际编码。
+- `classifier.py`：`LineClassifier` 按 §5.2 四步判定；版本未登记时严格兜底（含 `%`/`\r` 且不含错误词才算进度）。
+- `profiles.py`：工具画像（编码 / IO 画像 / 并发资源），编码按 §4.2（DISM/7z/aria2c/oscdimg=cp936，wimlib=utf-8）。
+- `watchdog.py`：四信号联合 + 窗口数由参数算出（默认 20 个）；**只告警不杀**；采样失败按「有活动」。
+- `sampler.py`：ctypes 调 `GetProcessTimes` / `GetProcessIoCounters` / `GetIfTable`，
+  按**进程树**累加 CPU 与 IO，网络取系统级收发（§7.2），不引入 psutil。
+- `errors.py`：`ToolExecutionError`(2) / `ToolStartError`(4) / `PermissionDeniedError`(4) / `ToolMissingError`(4)，
+  以及 `build_tool_failure()`（工具、返回码、耗时、通道、HRESULT、末 20 行、脱敏命令）与 `redact_command()`。
+
+### 决策
+| # | 决策 | 理由 |
+| --- | --- | --- |
+| D1 | 正则先内置为 Python 常量，保留 `from_mapping()` | YAML 解析需额外依赖，而 WP0-T2 清单未含；已回写 进程 §5.3 说明 |
+| D2 | 进程树 CPU/IO 用 ctypes 枚举子进程累加，网络用 `GetIfTable` | 规范要求「进程树累计」且禁 psutil；老 API 结构简单、够用 |
+| D3 | Ctrl-Break 仅在 `GetConsoleWindow()!=0` 时执行 | 进程 §7.1：GUI/pythonw 下第一步必然空转 |
+| D4 | 采样失败一律按「有活动」 | 宁可漏报也不误杀（§7.2 的取向） |
+| D5 | 并发锁固定 `image`=1 / `download`=1，注入并发则忽略并记 `concurrency_ignored` | 进程 §8「不提供可配置性」 |
+
+### 测试
+- 夹具 `tests/fixtures/process/{dism,wimlib,aria2c}/*.jsonl`（真机输出形态，含进度行、HRESULT 失败、正常完成）。
+- `test_process_decode.py`（13）、`test_process_classify.py`（10）、`test_process_watchdog.py`（11）、
+  `test_process_runner.py`（20）：成功回放、失败现场信息、取消两条分支、并发固定、超长行/无换行残留、编码回退、脱敏。
+- 全量：`pytest 217 passed`；`mypy 61 files`；`ruff` / `format` 全绿。
+
+### 变更（文档）
+- `进程` v0.3 → **v0.4**：§5.3 补「正则表落地状态」——M0 用 Python 常量，YAML 待规则库任务决定；`术语表 §1.2` 同步。
+
+### 已知限制
+- **进度模型（§6）未实现**：本层只做 `progress` 分类与计数，单调递增、5 次/秒节流、`stage_percent` 权重
+  属编排/GUI 侧（WP1-T2 / WP9-T13），当前进度只经 `on_event` 抛出。
+- **网络信号是系统级**：别的程序有流量时不会告警（保守取向，§7.2 已声明）；按进程统计需 ETW，未做。
+- **未做真实工具联调**：全部验证走夹具；首个真实对接在 WP0-T7（工具自检）时补，
+  届时需在你目标系统实测 Ctrl-Break 分支（进程 §7.1 要求 M0 实测确认）。
+- `on_event` 是同步回调：GUI 侧必须自行切回 UI 线程（信号槽），本层不替调用方跨线程。
+
 ## 0.1.11 — WP0-T4 统一错误模型与退出码
 
 > 依据：GUI 框架 §5.6、进程 §9.1/§9.2、需求 FR9.3。验收：错误对象含阶段/文件/工具/返回码/原始片段。

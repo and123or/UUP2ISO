@@ -1,0 +1,6 @@
+{"channel":"stdout","text":"Deployment Image Servicing and Management tool\n"}
+{"channel":"stdout","text":"Version: 10.0.26100.1\n"}
+{"delay_ms":10,"channel":"stdout","text":"[==== 12.5%]\n"}
+{"delay_ms":10,"channel":"stdout","text":"[==== 100%]\n"}
+{"channel":"stdout","text":"The operation completed successfully.\n"}
+{"exit":0}

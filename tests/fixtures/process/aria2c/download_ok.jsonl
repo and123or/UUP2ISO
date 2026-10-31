@@ -1,0 +1,5 @@
+{"channel":"stdout","text":"[#abc123 1.2MiB/10MiB(12%) CN:1 DL:2.1MiB]\n"}
+{"delay_ms":5,"channel":"stdout","text":"[#abc123 10MiB/10MiB(99%) CN:1 DL:3.0MiB]\n"}
+{"channel":"stdout","text":"Download Results:\n"}
+{"channel":"stdout","text":"gid   |stat|avg speed  |path/URI\n"}
+{"exit":0}

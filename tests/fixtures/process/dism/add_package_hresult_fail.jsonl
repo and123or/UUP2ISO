@@ -1,0 +1,5 @@
+{"channel":"stdout","text":"[==== 5.0%]\n"}
+{"channel":"stderr","text":"Error: 0x800f081f\n"}
+{"channel":"stderr","text":"The source files could not be found.\n"}
+{"channel":"stderr","text":"Use the Source option to specify the location of the files.\n"}
+{"exit":87}

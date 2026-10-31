@@ -1,7 +1,8 @@
 # UUP2ISO GUI 界面与框架设计
 
-> 版本：v0.8（草案）
-> 依据：`docs/需求分析.md`（FR0–FR10）
+> 版本：v0.9
+> 分类：设计（结构与界面） ｜ 目录：`docs/设计/`（草案）
+> 依据：`docs/需求/需求分析.md`（FR0–FR10）
 > 配套：`docs/软件架构图.md`、`docs/软件流程图.md`
 > 技术栈：Python 3.12+ / PySide6，Windows 10/11 x64
 > 交付物：GUI 界面规格 + 软件框架设计（可指导编码）
@@ -189,49 +190,49 @@ UUP2ISO/
 
 ### 5.1 流水线任务模型
 
-**阶段（Stage）固定枚举，任务由「输入源 + 起始阶段 + 各阶段选项」定义**（对齐 FR0）：
+**阶段（Stage）固定枚举（8 个，名称唯一，见编排 §2）**，任务由「输入源 + 起始阶段 + 各阶段选项」定义（对齐 FR0）：
 
 | Stage | 对应需求 | 输入→输出 |
 |---|---|---|
-| `Fetch`（选构建+下载） | FR1, FR2 | 构建选择 + 清单 → 本地 UUP 文件夹 |
-| `Convert` | FR3 | UUP 文件夹 / 本地文件夹 → `install.wim/esd` + ISO 骨架 |
-| `Slim` | FR4 | 映像 → 精简后映像 |
-| `Optimize` | FR5 | 映像 → 优化后映像 |
-| `Integrate` | FR6 | 映像 → 集成后映像 |
-| `Unattend` | FR7 | 选项 → `autounattend.xml`/`unattend.xml` |
-| `Output` | FR8 | 组装文件 → ISO/wim/esd + 校验 |
+| `Prepare`（P0） | FR0.4/0.5 | 输入路径 → `probe.json` + `image\`（物化/解包） |
+| `Fetch`（P1） | FR1, FR2 | 构建选择 + 清单 → 本地 UUP 文件夹 |
+| `Convert`（P2） | FR3 | UUP 文件夹 → `install.wim` + 骨架 + `boot.wim` |
+| `Slim`（P3） | FR4 | 映像 → 精简后映像 |
+| `Optimize`（P4） | FR5 | 映像 → 优化后映像 |
+| `Integrate`（P5） | FR6 | 映像 → 集成后映像 |
+| `Unattend`（P6） | FR7 | 选项 → `autounattend.xml`（+ 可选注入） |
+| `Output`（P7） | FR8 | 组装文件 → ISO/wim/esd + 分级校验 |
 
 **入口裁剪表**（`StagePlanner` 依据）：
 
 | 入口 | 起始 Stage | 执行阶段序列 |
 |---|---|---|
-| A 在线构建 | `Fetch` | Fetch → Convert → Slim → Optimize → Integrate → Unattend → Output |
-| B 本地 UUP 文件夹 | `Convert` | Convert → Slim → Optimize → Integrate → Unattend → Output |
-| C 现成 ISO/WIM/ESD | `Slim`/`Optimize`/`Unattend` | （解析/挂载）→ 所选阶段 → Output |
+| A 在线构建 | `Fetch` | Fetch → Convert → Slim → Optimize → Integrate → Unattend → Output（`Prepare` 只做 `uup\` 就绪探测） |
+| B 本地 UUP 文件夹 | `Convert` | Prepare → Convert → Slim → Optimize → Integrate → Unattend → Output |
+| C 现成 ISO/WIM/ESD | `Slim` | Prepare → Slim → Optimize → Integrate → Unattend → Output |
 
-用户可在任意入口后**跳过可选阶段**（如仅精简不集成）。
+用户可在任意入口后**跳过可选阶段**（如仅精简不集成），跳过记 `status=skipped` 并写原因。
 
 ### 5.2 任务状态机与续跑
 
 ```mermaid
 stateDiagram-v2
-  [*] --> Created
-  Created --> Planning: 选择入口与选项
-  Planning --> Ready: 生成阶段计划
-  Ready --> Running: Start
-  Running --> Running: 阶段进度
-  Running --> Paused: 暂停(可保存)
-  Paused --> Running: 继续
-  Running --> Cancelled: 取消
-  Running --> Failed: 阶段失败
-  Failed --> Running: 从失败阶段重试
-  Running --> Succeeded: 输出并校验通过
-  Cancelled --> [*]
-  Succeeded --> [*]
+  [*] --> draft: 进入向导（生成草稿）
+  draft --> queued: 点击开始
+  queued --> running: 取得单实例锁
+  running --> running: 阶段/子步骤进度
+  running --> cancelled: 用户取消
+  running --> failed: 阶段失败
+  running --> succeeded: 输出校验通过
+  cancelled --> running: --resume
+  failed --> running: --resume
+  succeeded --> [*]
 ```
 
-- `TaskSession` 持久化 `PipelineContext`（当前阶段、已完成文件哈希、选项）到 `{程序目录}\tasks\{id}.json`，支持 `--resume` / GUI「继续上次」。
-- 失败重试仅重跑失败阶段（原子性：不产出半成品，见非功能）。
+- 状态取值**只允许** `draft` / `queued` / `running` / `succeeded` / `failed` / `cancelled` / `interrupted`（术语表 §2.2）；另有 `interrupted` 由下次启动检测得出。
+- **没有 `paused`**：本期不支持「暂停/继续」，暂停语义只能通过「取消 + 续跑」实现（编排 §13 开放问题）。
+- `TaskSession` 持久化 `PipelineContext`（当前阶段、已完成文件哈希、选项）到 `{程序目录}\tasks\{id}.json` 的 `runtime` 段（字段见编排 §10），支持 `--resume` / GUI「继续上次」。
+- 失败重试仅重跑失败阶段（原子性：不产出半成品，见输出规范 §3）。
 
 ### 5.3 进度与日志上报
 
@@ -326,12 +327,13 @@ flowchart LR
   S6 --> S7[7 集成 FR6]
   S7 --> S8[8 无人值守 FR7]
   S8 --> S9[9 输出 FR8]
-  S9 --> S10[10 执行/进度 FR9]
-  S10 --> S11[11 完成]
+  S9 --> S10[10 确认]
+  S10 --> RUN([跳转执行页：阶段串/进度/日志])
 ```
 
-- 向导左侧或顶部显示步骤条；不可用步骤灰显（如入口 C 无「构建选择/下载/转换」）。
-- 每步右上角「保存任务配置」；顶部「高级模式」开关可展开底层参数。
+- **共 10 步**（与 `GUI交互规格-向导页.md` §1.2、§2 一致）：⑩ 是「确认」，不是「执行/进度」——执行与日志在同级的**执行页**（`GUI交互规格-设置与对话框.md` §6），不占向导步骤。
+- 向导左侧或顶部显示步骤条；不可用步骤灰显（如入口 C 无「构建选择/下载/转换」），隐藏的步骤不占位。
+- 每步右上角「保存任务配置」；三档模式（简单/标准/专家）在向导右上角切换，不放在这里所谓的「高级模式」下。
 
 ### 6.4 关键页面线框
 
@@ -390,17 +392,18 @@ flowchart LR
 
 ```
 ┌ 转换选项 ──────────────────────────────────────────────────────────────┐
-│ 输出  ○ WIM   ● ESD(wim2esd)   ○ 拆分 WIM(wim2swm)      [ ] 跳过 ISO    │
+│ 输出类型 ● ISO   ○ WIM   ○ ESD（保守模式灰显）  ○ SWM（本期灰显：未验证）│
 │ 压缩  [LZX ▼] (none/XPRESS/LZX/LZMS)                                   │
 │ ☑ 集成更新(AddUpdates)   ☑ 组件清理(Cleanup)   ☐ 重置基础(ResetBase)    │
 │ ☑ 启用 .NET 3.5(NetFx3)  WinRE[更新 ▼](保留/更新/跳过)  ☐ 仅升级         │
-│ 保留版本:  [✓]Home [✓]Pro [✓]Edu [ ]Pro N ...  虚拟版本[自定义…]        │
+│ 保留版本:  [✓]Home [✓]Pro [✓]Edu [ ]Pro N ...  虚拟版本[不可用]        │
 │ 卷标: [CCCOMA_X64FRE_ZH-CN_DV9]                                        │
 │                                        [高级…]           [下一步 →]     │
 └────────────────────────────────────────────────────────────────────────┘
 ```
 
-- 每个选项悬停显示对应 `ConvertConfig.ini` 键名与说明。
+- **「出什么产物」只有一个开关：输出类型**（`output.type`）。不要再出现「跳过 ISO」这类第二套开关——`output.type=wim` 就等于只出映像（配置规范 §3.4）。
+- 每个选项悬停显示对应 `ConvertConfig.ini` 键名与说明；被保守模式禁用的项灰显并给原因（引擎 §5）。
 
 #### 6.4.5 第 5 步・精简（FR4）
 

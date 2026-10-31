@@ -1,7 +1,8 @@
 # UUP2ISO FR3–FR5 详细需求
 
-> 版本：v0.3（草案）
-> 依据：`docs/需求分析.md`（FR3 转换 / FR4 精简 / FR5 系统优化）、`docs/日志规范.md`（§5.2 进度不入日志）
+> 版本：v0.4
+> 分类：需求（详细需求） ｜ 目录：`docs/需求/`（草案）
+> 依据：`docs/需求/需求分析.md`（FR3 转换 / FR4 精简 / FR5 系统优化）、`docs/规范/日志规范.md`（§5.2 进度不入日志）
 > 参考实现：**FR3** 对齐 `uup-converter-wimlib`（`ConvertConfig.ini`）；**FR5** 对齐 **Dism++**（`Data.xml` 规则库）
 > 交付物：逐选项/逐项的**描述**与**实现方式**（可指导编码）
 
@@ -93,14 +94,14 @@ reg unload HKLM\OFFLINE_SW & reg unload HKLM\OFFLINE_SY & reg unload HKLM\OFFLIN
 
 ### 2.2 输出与产物（CV-01 / CV-07 / CV-08 / CV-09 / CV-26 / CV-28）
 
-- **CV-01 输出模式**：映射 `AutoStart`，取值语义与 UUP dump 脚本一致，便于从现有工作流迁移。
-- **CV-07 / CV-08 互斥优先**：两者同时开启时 ESD 优先于 swm（与脚本一致）；install.wim 小于 4GB 时自动禁用 swm。
+- **CV-01 输出模式**：映射 `AutoStart`，取值语义与 UUP dump 脚本一致，便于从现有工作流迁移；在本工具中该语义由 `convert.mode`（`wim_only`/`full`）+ `output.type`（`iso`/`wim`/`esd`/`swm`）两个字段共同表达（配置规范 §3.3/§3.4），不单独保留 `AutoStart` 的 1/2/3/4 数值。
+- **CV-07 / CV-08 / CV-09 不再互为开关**：「出 ESD / 出 SWM / 只出映像」统一由 `output.type` 单选表达，因此不存在「同时开启」的冲突；`wim2swm` 属后置能力，本期选择即拒绝（`OUTPUT_TYPE_UNSUPPORTED`）。
 - **CV-26 压缩类型映射**：
 
   | 取值 | wimlib `--compress` | DISM `/Compress:` | 说明 |
   |---|---|---|---|
   | none | `none` | `none` | 不压缩，最快 |
-  | XPRESS（fast） | `XPRESS` | `fast` | 默认 WIM |
+  | XPRESS（fast） | `XPRESS` | `fast` | DISM 的 fast 档；本工具默认 LZX（配置规范 §5） |
   | LZX（max） | `LZX` | `max` | 体积较小 |
   | LZMS（recovery） | `LZMS` | `recovery` | install.esd 用 |
 
@@ -514,9 +515,9 @@ FR3 各选项与 `[convert-UUP]` / `[Store_Apps]` / `[create_virtual_editions]` 
 - FR4 精简清单（Appx/包/能力）与 FR5 优化规则库外置为 JSON，字段对齐 Dism++ `Data.xml` 语义（`General RootPath` / `RegWrite` / `RegDelete` / `RegMove` / `SetServiceStart` / `RunCommand`），支持在线更新规则。
 - 规则项字段：`id`、`name`、`description`、`warning`、`level`(风险)、`applicable`(OSVersion/ImageFlags/RegExist/FileExist)、`actions[]`。
 - 交付文件：
-  - `docs/需求分析/rules/rules.schema.json`：JSON Schema（draft-07），定义规则与动作（`regWrite`/`regDelete`/`regMove`/`setServiceStart`/`removeProvisionedAppx`/`removePackage`/`removeCapability`/`deletePath`/`runCommand`/`procName`）。构建时复制到程序目录 `rules/`。
-  - `docs/需求分析/rules/fr4-rules.json`：FR4 精简规则示例（Appx/组件/能力/硬件）。
-  - `docs/需求分析/rules/fr5-rules.json`：FR5 系统优化规则示例（空间回收/tweak/服务/CompactOS）。
+  - `docs/规范/rules/rules.schema.json`：JSON Schema（draft-07），定义规则与动作（`regWrite`/`regDelete`/`regMove`/`setServiceStart`/`removeProvisionedAppx`/`removePackage`/`removeCapability`/`deletePath`/`runCommand`/`procName`）。构建时复制到程序目录 `rules/`。
+  - `docs/规范/rules/fr4-rules.json`：FR4 精简规则示例（Appx/组件/能力/硬件）。
+  - `docs/规范/rules/fr5-rules.json`：FR5 系统优化规则示例（空间回收/tweak/服务/CompactOS）。
   - 动作语义：`hive` 使用逻辑名（SOFTWARE/SYSTEM/DEFAULT/NTUSER/DRIVERS）由运行时映射到离线 hive；`runCommand.mode` 取 `offline`/`online`/`firstBoot`；`procName` 映射本工具内置例程（如 `DismComponentCleanup`/`DismCompactOs`）。
 
 ---

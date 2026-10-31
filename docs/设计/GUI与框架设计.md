@@ -1,11 +1,13 @@
 # UUP2ISO GUI 界面与框架设计
 
-> 版本：v0.9
+> 版本：v0.10
 > 分类：设计（结构与界面） ｜ 目录：`docs/设计/`（草案）
 > 依据：`docs/需求/需求分析.md`（FR0–FR10）
-> 配套：`docs/软件架构图.md`、`docs/软件流程图.md`
-> 技术栈：Python 3.12+ / PySide6，Windows 10/11 x64
+> 配套：`docs/设计/软件架构图.md`、`docs/设计/软件流程图.md`
+> 技术栈：Python 3.12–3.13 / PySide6，Windows 10/11 x64
 > 交付物：GUI 界面规格 + 软件框架设计（可指导编码）
+>
+> v0.10（对齐 M0 实现，WP0-T1/T2/T2a）：Fluent 控件库改为 **`PySide6-Fluent-Widgets`**；Python 版本上限锁 `<3.14`；配套文档路径修正到 `docs/设计/`。
 
 ---
 
@@ -58,7 +60,8 @@
 
 ### 3.2 语言与运行时
 
-- 语言：Python 3.12+（x64）
+- 语言：Python 3.12–3.13（x64）。**上限锁 `<3.14`**：PySide6 尚无 3.14 wheel，3.14 无法安装依赖栈；
+  待 PySide6 发布 3.14 wheel 后再放开（需同步 `pyproject.toml` 的 `requires-python` 与本文）。
 - **开发与运行环境（强制约定）**：
   - **所有脚本（开发、测试、构建、打包、自动化代理）一律在工作空间根目录的虚拟环境 `.venv` 中运行**，不得使用系统 Python 主环境；
   - 首次初始化：`python -m venv .venv`；
@@ -71,7 +74,7 @@
 | 用途 | 库 |
 |---|---|
 | GUI 框架 | `PySide6`（Qt 6 官方 Python 绑定） |
-| Fluent 控件库 | `PyQt-Fluent-Widgets`（Fluent 主题、导航、对话框） |
+| Fluent 控件库 | `PySide6-Fluent-Widgets`（Fluent 主题、导航、对话框；**PySide6 变体**） |
 | 视图逻辑 | Qt 信号槽 + Presenter 模式（不引入额外 MVVM 框架） |
 | 依赖注入/组合根 | `dependency-injector`（或组合根模块手动装配） |
 | 日志 | `logging` + 自定义文件处理器（每次启动一个文件、三条件清理、审计分流，见 `日志规范.md`） |
@@ -84,6 +87,10 @@
 | 打包 | `pyinstaller`（单目录优先，`--uac-admin` 提权清单） |
 
 > 除 UI 相关库外，其余均下沉到 core/infrastructure，保证 CLI 无 UI 依赖。
+>
+> **禁止 `PyQt-Fluent-Widgets`**：它基于 PyQt6，与 PySide6 并存会同时装上两套 Qt 绑定并在运行期崩溃。
+> 发行名必须写 `PySide6-Fluent-Widgets`，导入名仍是 `qfluentwidgets`。
+> 门禁：`tests/test_dependencies.py::test_no_dual_qt_bindings` 检测到 `PyQt6` 即失败。
 
 ---
 

@@ -1,0 +1,30 @@
+# ---------------------------------------------------------------------------
+# UUP2ISO 运行期依赖清单（与 pyproject.toml [project] dependencies 一致）
+#
+# 安装（工作空间根目录，已完成 .venv 创建）：
+#   .venv\Scripts\python -m pip install -r requirements.txt
+#
+# 说明：
+#   * 发行名 PySide6-Fluent-Widgets 才是 PySide6 版本；PyQt-Fluent-Widgets 基于 PyQt6，
+#     与本项目已决策的 PySide6 并存会装两套 Qt 绑定并导致运行时崩溃，禁止使用。
+#   * PySide6 下载体积约 150 MB，国内网络慢时可加镜像（仅影响传输，不改包内容）：
+#     -i https://pypi.tuna.tsinghua.edu.cn/simple
+#   * 需要完全锁定时，安装成功后执行： .venv\Scripts\python -m pip freeze > requirements.lock.txt
+# ---------------------------------------------------------------------------
+
+# GUI：Qt 6 官方绑定 + Fluent 控件库
+PySide6>=6.8,<7
+PySide6-Fluent-Widgets>=1.7,<2
+
+# 网络：数据源查询与下载清单（不承担大文件下载，大文件走 aria2c）
+httpx>=0.27,<1
+
+# 模型与校验：TaskConfig / 预设 / 设置
+pydantic>=2.9,<3
+jsonschema>=4.23,<5
+
+# CLI：最小命令集 run --config / --dry-run / --resume / --debug / version
+typer>=0.12,<1
+
+# XML：无人值守 autounattend 生成与 XSD 校验
+lxml>=5.3,<7

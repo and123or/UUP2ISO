@@ -1,5 +1,148 @@
 # CHANGELOG
 
+## 0.1.7 — 纳入追踪与行尾固定（首次触发 CI）
+
+### 新增
+- **`.gitattributes`**：`* text=auto eol=lf`，`*.ps1/*.cmd/*.bat` 强制 `eol=crlf`，常见二进制（png/ico/zip/exe/wim/esd/iso/msu/cab）标 `binary`。
+  原因：本机 `core.autocrlf=true`，无此文件时检出后 `.py` 变 CRLF，而 `pyproject.toml` 的 `ruff format` 设为 `line-ending = "lf"`，
+  会让 `ruff format --check` 在本地与 CI 结果不一致。
+- **首次把工程基线纳入 Git 追踪**（此前仅有 28 个文档文件被追踪，`README.md` / `requirements*.txt` / `pyproject.toml` / `src` / `tests` / `scripts` / CI 工作流均为未追踪状态）：
+  新增 `pyproject.toml`、`README.md`、`AGENTS.md`、`.python-version`、`requirements.txt`、`requirements-dev.txt`、
+  `requirements.lock.txt`、`scripts/{bootstrap.ps1,check.ps1,env_check.py}`、`src/uup2iso/**`（22 个模块）、`tests/**`（5 个）、
+  `.github/workflows/ci.yml`；同时提交 v1.3 文档回写（CHANGELOG、术语表、约定、计划、台账、GUI框架 5 份）。
+
+### 变更
+- CI 状态由「文件存在但从未运行」变为**首次可运行**：`push: branches: [main]` 在本次推送即触发。
+
+### 已知限制
+- CI 是否全绿以 GitHub Actions 实际结果为准；Windows 运行器上的 Qt 离屏（`QT_QPA_PLATFORM=offscreen`）与
+  `pytest-qt` 组合未在本地等价前置条件下验证过，首次运行可能需要调整。
+
+## 0.1.6 — WP0-T1 / T2 / T2a 验收闭合（环境可重建 + 文档回写）
+
+> 触发：0.1.5 遗留 4 项（bootstrap 未端到端、无锁文件、文档 2 处未回写、CI 未实跑）。本版关闭前 3 项，
+> CI 一项本机无远端，仅保留工作流文件并标注未实跑。
+
+### 新增
+- `requirements.lock.txt`：由 `bootstrap.ps1` 自动生成的依赖快照（55 个包，win-x64 / cp313），作复现基准。
+- `bootstrap.ps1` 新增 `-NoUpgrade` 开关：环境已就绪或网络受限时跳过 pip/setuptools/wheel 联网升级。
+
+### 变更（脚本健壮性，均为实测踩坑后修复）
+- **PowerShell 脚本必须 UTF-8 with BOM**：`scripts/*.ps1` 原为无 BOM UTF-8，Windows PowerShell 5.1 按 cp936 解码，
+  中文注释变乱码并**破坏语法**（实测 `引用运算符后面缺少属性名称`）。两个脚本已转 UTF-8 BOM + CRLF。
+- **解释器探测重写**：优先复用已存在的 `.venv`（重跑不再要求系统装 3.13）；候选顺序改为
+  `-PythonExe` → `py -3.13` → `py -3.12` → `python` → `python3` → 三个常见安装目录；
+  失败时给出三条可执行处置建议，而不是只丢一句「请安装 3.13」。原因：本机只有 Python 3.14，
+  `.venv` 实际由自带的 3.13 创建，旧逻辑会在「环境明明可用」时直接抛错。
+
+### 变更（文档回写，S13 基线 v1.3）
+- `GUI框架` v0.9 → **v0.10**：`PyQt-Fluent-Widgets` → **`PySide6-Fluent-Widgets`**（并说明 PyQt 变体禁用原因与门禁位置）；
+  §3.2 语言改为 **Python 3.12–3.13（上限 `<3.14`）**；配套文档路径修正到 `docs/设计/`。
+- `约定` v0.4 → **v0.5**：§2 补「解释器版本 3.12–3.13 + `requires-python` 口径」「bootstrap 一键脚本与 `-NoUpgrade`」
+  「`.ps1` 必须 UTF-8 BOM（含复检命令）」。
+- `计划` v0.21 → **v0.22**：WP0-T2 依赖清单改用 `PySide6-Fluent-Widgets` 并标注 PyQt 变体禁用。
+- `台账` v1.2 → **v1.3**：新增 S13「M0 落地回写」并回填进度。
+- `术语` v0.2 → **v0.3**：§1.2 版本列同步（GUI框架 v0.10 / 计划 v0.22 / 台账 v1.3 / 约定 v0.5）；
+  §4.2 补 S13 复跑结论并记录「文件名需先屏蔽再匹配短名」的口径坑。
+
+### 验收（可复现命令）
+- `scripts/bootstrap.ps1 -NoUpgrade -SkipTests` 端到端跑通：复用 `.venv` → `pip install -e ".[dev]"` →
+  `env_check.py` **5/5 PASS（结果 OK）** → 生成 `requirements.lock.txt`。
+- `pip install -e ".[dev]"` 按验收原文单独执行成功（`Successfully installed uup2iso-0.1.5`）。
+- 三类文档引用校验按 §4 口径重跑：**835 处（56 / 697 / 82），失效 0**，与 v1.2 记录完全一致。
+- 门禁：`ruff check` / `ruff format --check` / `mypy`（30 文件）/ `pytest`（45 项）全绿。
+
+### 已知限制
+- **CI 未实跑**：仓库无 git 远端（`git remote -v` 为空），`.github/workflows/ci.yml` 仅静态存在；
+  推送后需观察首次运行结果。
+- **「干净机器」重建只验证到脚本层**：本机无独立安装的 Python 3.13（仅 3.14 + 打包自带的 3.13），
+  无法在不复用现有 `.venv` 的前提下完整重建；临时目录重建被宿主安全策略拦截（`bulk guard` 退出 1）。
+  真实干净机验证需在装好 Python 3.13 的机器上跑一次 `bootstrap.ps1 -Recreate`。
+- `tests/test_layering.py` 目前扫描的目录多为占位 `__init__.py`，门禁虽有效（含自检探针），
+  但要到 WP0-T3 落真实代码后才有实质约束力。
+
+## 0.1.5 — 环境核查修复：CLI 根命令、分层门禁误报、mypy 导入根
+
+> 触发：按 `requirements-dev.txt` 手动装依赖后做环境核查，5 项自检中 4 项通过，
+> 预演测试 3 处失败。经定位**全部为代码缺陷**（非依赖缺失），本版修复。
+
+### 修复
+- **CLI 命令名失效**（`src/uup2iso/cli/main.py`）：Typer 在「仅一个命令且无根回调」时会把该命令提升为根命令，
+  导致 `uup2iso version` 报 `Got unexpected extra argument(s) (version)`、退出码 2。补充 `@app.callback()`
+  根回调后 `version` 恢复为子命令；后续新增 `run` 等命令也依赖该根回调。
+- **分层门禁误报**（`tests/test_layering.py`）：包根文件 `src/uup2iso/__init__.py` 不属于任何一层，
+  原逻辑判定 `owner is None` 直接断言失败。新增 `ALLOWED_ROOT`（伞包可引用各层），并将 `owner/allowed`
+  改为成对取值；`test_layer_fixture_detects_violation` 自检语义不变。
+- **mypy 无法解析自身包**（`pyproject.toml`）：`files = ["src"]` 但缺 `mypy_path`，本包未安装时
+  `from uup2iso import __version__` 报 `import-not-found`（此前未被发现，是因为残留 `egg-info` 恰好充当了导入根）。
+  补 `mypy_path = "src"`，不再依赖安装态。
+- **格式门禁**：`tests/test_layering.py` 中超长断言不满足 `ruff format --check`，已按行宽重排。
+
+### 变更
+- 清除被中断的 `pip install -e` 残留 `src/uup2iso.egg-info`（PKG-INFO 版本为 0.1.3）：
+  该目录会被 `importlib.metadata` 当作已安装发行版，导致版本断言读到陈旧值。构建产物由安装命令重新生成。
+
+### 已知限制
+- **项目本体尚未安装**：`pip install -r requirements-dev.txt` 只装第三方依赖，不装 `uup2iso` 自身。
+  因此 `scripts/env_check.py` 的 `package_importable` 与 `tests/test_version.py::test_installed_metadata_matches`
+  仍会失败，需补执行 `pip install -e . --no-deps`（无新增下载）。其余 44 项测试、`ruff check`、
+  `ruff format --check`、`mypy` 在 `PYTHONPATH=src` 预演下均已通过。
+
+## 0.1.4 — 依赖清单与 Python 版本固定（手动安装交付）
+
+### 新增
+- `requirements.txt`：运行期依赖清单（7 个发行版，与 `pyproject.toml` `[project] dependencies` 完全一致，
+  含包名注释与「禁止 PyQt-Fluent-Widgets」警示）。
+- `requirements-dev.txt`：开发依赖清单（`-r requirements.txt` + pytest / pytest-qt / dirty-equals / ruff / mypy / pyinstaller）。
+- `.python-version`：`3.13`（供 pyenv 等版本管理器识别；3.14 无 PySide6 wheel）。
+- `README.md` 新增「Python 版本」对照表与「方式二：手动安装」步骤（含国内镜像与装后自检命令）。
+
+### 变更
+- 手动安装成为与 `scripts/bootstrap.ps1` 等价的一等路径；依赖的**唯一权威来源仍是 `pyproject.toml`**，
+  两份 requirements 为镜像副本，改依赖须两处同步。
+
+### 已知限制
+- 两份 requirements 使用版本区间（如 `PySide6>=6.8,<7`）而非精确锁定；需要逐位复现时，
+  安装后执行 `pip freeze > requirements.lock.txt`，`bootstrap.ps1` 亦会自动生成该快照。
+- 精确版本组合未经本机安装验证（下载时长受限），首次安装后若出现解析冲突，按 `pip` 报告放宽单一上界即可。
+
+## 0.1.3 — M0 工程基线：工程结构 + 依赖 + 环境门禁（WP0-T1 / T2 / T2a）
+
+> 首个**含代码**的版本。此前 0.0.x–0.1.x 均为纯文档阶段；按 `版本与变更管理.md` §1，M1 发布才推进到
+> `0.2.0`，故 M0 基线取 `0.1.x` 末位递增。**若需改为 `0.2.0.devN` 语义请先改 §1 再改本文件。**
+
+### 新增
+- **工程结构（WP0-T1）**：`pyproject.toml`（setuptools + `src/` 布局）+ `src/uup2iso/` 六层骨架
+  `core`（models/pipeline/options/presets/abstractions/errors）、`application`（pipeline/task_session/settings/progress）、
+  `infrastructure`（source/download/imaging/optimize/iso/process/storage）、`gui`（views/presenters/controls/navigation/resources + `app.py` 组合根骨架）、`cli`（`main.py`，仅 `version` 命令）。
+- **依赖声明（WP0-T2）**：运行期 PySide6、PySide6-Fluent-Widgets、httpx、pydantic、typer、jsonschema、lxml；
+  `dev` 额外 pytest、pytest-qt、dirty-equals、ruff、mypy、pyinstaller。全部安装进工作空间 `.venv`。
+- **门禁测试**：`test_version.py`（三处版本同步 + requires-python）、`test_layering.py`（AST 扫描六层依赖方向，
+  含自检探针防门禁空转）、`test_dependencies.py`（声明/安装一致性、UI 库仅限 gui、禁止 PyQt6 与 PySide6 并存）、
+  `test_gui_smoke.py`（离屏创建主窗口 + CLI `version` 冒烟）。
+- **环境一致性（WP0-T2a）**：`scripts/bootstrap.ps1`（选解释器→建 `.venv`→`pip install -e .[dev]`→自检→门禁→依赖快照）、
+  `scripts/check.ps1`（门禁一键）、`scripts/env_check.py`（解释器身份/版本/依赖/主环境污染四项校验，支持 `--json`）、
+  `.github/workflows/ci.yml`（同样先建 `.venv` 再跑门禁）、`tests/conftest.py` 解释器身份门禁、
+  `README.md`（开发指南）、`AGENTS.md`（代理强制约定）。
+
+### 变更
+- **Fluent 控件库改用 `PySide6-Fluent-Widgets`**（原计划写 `PyQt-Fluent-Widgets`）：后者基于 PyQt6，
+  与已决策的 PySide6 并存会装两套 Qt 绑定并导致运行时崩溃；模块名仍为 `qfluentwidgets`。
+- **`requires-python` 定为 `>=3.12,<3.14`**：3.14 暂无 PySide6 wheel；上限放开时机待 wheel 可用后评估。
+- **依赖注入不引入 `dependency-injector`**：采用 `GUI框架 §3.3` 允许的「组合根手动装配」分支，避免新增未列入 `WP0-T2` 的依赖。
+- **`.venv` 内执行成为机器可验证约束**：非 `.venv` 解释器运行时 pytest 直接 `UsageError`。
+
+### 修复
+- 无（本版为新基线）。
+
+### 已知限制
+- `core` 等子包目前只有占位 `__init__.py`，领域模型与接口按 `WP0-T3` 起实现；`cli` 只有 `version`，命令集在 `WP1-T5`。
+- GUI 仅骨架窗口（一个占位标签），无导航、向导与主题切换（`WP9-T1`/`WP9-T3`/`WP9-T18`）。
+- 打包（PyInstaller 单目录）与安装包（Inno Setup/NSIS）属 `WP11-T1`，本版未实施，仅在 `README.md` 给出前置命令与误报处置。
+- CI 工作流已提交但未在 GitHub 上实跑（本机无远端执行环境），本地等效步骤已全绿。
+- `docs/` 中两处与实现不一致待同步：`GUI框架 §3.3` 的 `PyQt-Fluent-Widgets` 包名、`约定 §2`/`GUI框架 §3.2` 的 `3.12+` 上限表述。
+  按「先改文档再改代码」应尽快回写，已在交付说明中列为待确认项。
+
 ## 0.1.2 — 项目计划补全「任务 → 文档章节」追溯（v1.2 基线）
 
 ### 变更

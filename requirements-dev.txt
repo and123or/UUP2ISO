@@ -1,0 +1,22 @@
+# ---------------------------------------------------------------------------
+# UUP2ISO 开发依赖清单（与 pyproject.toml [project.optional-dependencies].dev 一致）
+#
+# 安装（会一并安装运行期依赖）：
+#   .venv\Scripts\python -m pip install -r requirements-dev.txt
+# 若同时还要以可编辑方式安装本包（推荐，pytest 才能 import uup2iso）：
+#   .venv\Scripts\python -m pip install -e ".[dev]"
+# ---------------------------------------------------------------------------
+
+-r requirements.txt
+
+# 测试
+pytest>=8.3,<9
+pytest-qt>=4.4,<5
+dirty-equals>=0.8,<1
+
+# 静态检查与格式化
+ruff>=0.7
+mypy>=1.13
+
+# 打包（M4 / WP11-T1 使用；M0 阶段仅需可导入）
+pyinstaller>=6.10,<7

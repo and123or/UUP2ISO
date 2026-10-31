@@ -1,0 +1,26 @@
+# 行尾与二进制判定（固定下来，避免 autocrlf 造成跨机器差异）
+#
+# 背景：本机 core.autocrlf=true，若无本文件，检出后 .py 会变成 CRLF，
+# 而 pyproject.toml 的 ruff format 配置为 line-ending = "lf"，会让
+# `ruff format --check` 在本地与 CI 上结果不一致。
+
+* text=auto eol=lf
+
+# Windows 原生脚本需要 CRLF；.ps1 还要求 UTF-8 BOM（见 docs/治理/版本与变更管理.md §2）
+*.ps1 text eol=crlf
+*.cmd text eol=crlf
+*.bat text eol=crlf
+
+# 二进制：不要做任何文本转换
+*.png binary
+*.ico binary
+*.jpg binary
+*.zip binary
+*.7z binary
+*.exe binary
+*.dll binary
+*.wim binary
+*.esd binary
+*.iso binary
+*.msu binary
+*.cab binary

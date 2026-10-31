@@ -1,0 +1,54 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    env:
+      QT_QPA_PLATFORM: offscreen
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安装 Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      # 与本地完全一致的路径：先用解释器建 .venv，之后一切命令都走 .venv
+      - name: 创建 .venv 并安装依赖
+        shell: bash
+        run: |
+          python -m venv .venv
+          .venv/Scripts/python -m pip install --upgrade pip setuptools wheel
+          .venv/Scripts/python -m pip install -e ".[dev]"
+
+      - name: 环境一致性自检
+        shell: bash
+        run: .venv/Scripts/python scripts/env_check.py
+
+      - name: ruff check
+        shell: bash
+        run: .venv/Scripts/python -m ruff check .
+
+      - name: ruff format --check
+        shell: bash
+        run: .venv/Scripts/python -m ruff format --check .
+
+      - name: mypy
+        shell: bash
+        run: .venv/Scripts/python -m mypy
+
+      - name: pytest
+        shell: bash
+        run: .venv/Scripts/python -m pytest -q
+
+      # 打包验证从 WP11-T1 起接入；此处只保证模块入口可加载
+      - name: 入口冒烟
+        shell: bash
+        run: |
+          .venv/Scripts/python -m uup2iso.cli.main version

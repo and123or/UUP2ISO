@@ -1,5 +1,55 @@
 # CHANGELOG
 
+## 0.1.18 — WP0-T11 单实例守卫（WS0 收尾）
+
+> 依据：日志 §6.1、§6.2；流程图 §19；需求 FR9.4。
+> 验收：冲突实例不产生日志文件、不执行清理、不写审计；GUI 激活已有窗口退 0，CLI 退 5。
+
+### 新增
+- **`infrastructure/single_instance.py`**：`SingleInstanceGuard` —— 命名互斥量
+  `Local\UUP2ISO.SingleInstance`；`acquire()` 返回布尔（不抛错，由调用方决定「激活」还是「退 5」）；
+  冲突时主动关闭自己那份句柄，避免「续命」别人的互斥量。
+- **`application/startup.py`**：`bootstrap()` —— 单实例 → 建日志 → 补审计只读 → 清理 → 写启动日志，
+  **顺序即契约**；`StartupConflict`（退出码 5，带 `{"error":"already_running","code":5}` 载荷）。
+- **`gui/activation.py`**：`ActivationServer` / `activate_running_instance()` —— 基于 `QLocalServer`/`QLocalSocket`
+  的窗口激活通道（放 gui/ 是因为 PySide6 只允许出现在该层）。
+- **`gui/app.py`**：接线完整启动序列 —— 抢不到守卫就激活已有窗口并退 **0**（不建日志）；
+  抢到后开监听、走 bootstrap、进事件循环，退出时先关日志（审计置只读）再释放守卫。
+- **`cli/main.py`**：根回调为每个命令抢守卫；冲突时向 stderr 输出 JSON 并 `Exit(5)`。
+- `PruneReport.changed` 语义修正为「运行池或审计池任一有删除」（此前只算运行池，
+  导致「只删审计」时启动摘要不写日志）。
+
+### 决策
+| # | 决策 | 理由 |
+| --- | --- | --- |
+| D1 | 用内核互斥量而非锁文件 | 进程被强杀时内核自动释放，不留僵尸锁 |
+| D2 | `acquire()` 返回布尔而不是抛异常 | GUI 需要「失败→激活→退 0」，CLI 需要「失败→JSON→退 5」，策略在调用方 |
+| D3 | 启动日志的级别字段命名为 `log_level` | `LogSink.log()` 已有同名参数 `level`，撞名会 TypeError（本轮踩到） |
+| D4 | **`version` 不参与互斥**（已登记的偏差） | 只读、不写日志、不争资源；否则「开着窗口就查不了版本」 |
+| D5 | 激活通道用 Qt 本地套接字 | 跨进程、无端口冲突；`WM_COPYDATA` 需要窗口句柄，跨会话不可靠 |
+
+### 测试
+- `test_single_instance.py`（8）：首抢成功/二抢失败、重复 acquire 幂等、释放后可再抢、
+  不同名互不影响、上下文管理、`already_running` 标志、无 acquire 直接 release 安全。
+- `test_startup.py`（9）：建日志与级别来源、GUI 源码模式 DEBUG、**冲突不建日志**、
+  **冲突不清理**（旧日志必须还在）、补审计只读、清理并写 `audit_pruned`、目录不可写时抛错且释放守卫、复用已持有的守卫。
+- `test_cli_guard.py`（6）：`version` 豁免（且不尝试抢）、冲突输出 JSON 且退 5、成功返回会话、无子命令也守卫、释放回调。
+- 顺带修掉一处**分层违规**：`cli`/`gui` 原先直接 import `infrastructure`，现在改为只依赖 `application`
+  （新增 `StartupSession` + `acquire_instance()` / `release_instance()` 外观），分层门禁恢复绿。
+- `test_gui_activation.py`（4）：激活往返、每次请求都触发、无服务端返回 False、停止后可同名重启。
+- 全量：`pytest 496 passed`（新增 27 项）；`mypy 89 files`；`ruff`/`format` 全绿。
+
+### 变更（文档）
+- `日志` v0.6 → **v0.7**：§6.1 补落地状态与「`version` 不参与互斥」的偏差登记；`术语表 §1.2` 同步。
+
+### 已知限制
+- **CLI 的 `run` 还不存在**（WP1-T5）：退出码 5 的行为已在 `acquire_cli_guard` 与 `bootstrap` 两层实现并测试，
+  接命令时只需调用它们。
+- **激活通道只做「置前」**：不带参数、不做任务交接；多实例协同（把待办任务递给主实例）不在本期范围。
+- 僵死实例的互斥量由内核回收，但**残留的本地套接字名**靠 `QLocalServer.removeServer` 清理；
+  若主实例被强杀，第二次启动的激活尝试可能失败（返回 False，仍按「已在运行」退 0）。
+- 跨用户互斥不在本期范围（互斥量在 `Local\` 会话命名空间下）。
+
 ## 0.1.17 — WP0-T10 日志与进度上报模型
 
 > 依据：日志 §2、§3、§4、§5、§7.3；进程 §5、§6、§10。

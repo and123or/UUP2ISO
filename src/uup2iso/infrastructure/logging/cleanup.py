@@ -69,7 +69,8 @@ class PruneReport:
 
     @property
     def changed(self) -> bool:
-        return bool(self.deleted)
+        """是否有任何删除（运行池或审计池）。"""
+        return bool(self.deleted or self.audit_deleted)
 
 
 def set_readonly(path: Path, readonly: bool = True) -> None:

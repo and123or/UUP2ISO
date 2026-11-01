@@ -44,6 +44,7 @@ from uup2iso.core.models.enums import (
 from uup2iso.core.models.image import UNKNOWN_EDITION, Edition, ImageInfo
 from uup2iso.core.models.manifest import SCHEMA_VERSION, Manifest, ManifestSource, UupFile
 from uup2iso.core.models.preset import PresetDocument, PresetIssue, PresetRuleItems
+from uup2iso.core.models.rulepack import Rule, RuleLibrary, RulePack, RulePackIssue
 from uup2iso.core.models.rules import RuleOutcome, RuleReport
 from uup2iso.core.models.tools import EngineCapabilities, ToolInfo, ToolSource
 from uup2iso.core.models.verification import VerifyFinding, VerifyReport, VerifySeverity
@@ -83,7 +84,11 @@ __all__ = [
     "ManifestSource",
     "OutputType",
     "PresetKind",
+    "Rule",
+    "RuleLibrary",
     "RuleOutcome",
+    "RulePack",
+    "RulePackIssue",
     "RuleReport",
     "StageState",
     "SubstepState",

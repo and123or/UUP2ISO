@@ -1,5 +1,61 @@
 # CHANGELOG
 
+## 0.1.16 — WP0-T9 规则库 Schema 与加载器
+
+> 依据：规则 §2、§4、§8。验收：非法规则被拒绝并报错；支持外置更新。
+
+### 新增（`src/uup2iso/infrastructure/rules/`）
+- **`loader.py`**：`load_library()` —— 逐包 JSON Schema 校验 → 跨包 id 唯一 → `requires`/`conflicts`
+  引用存在 → 无环（单独报 `RULEPACK_CYCLIC` 并给出环路 `A → B → A`）→ 高风险必备字段 → `minEngine` 过滤。
+  **整体拒绝、不做部分加载**（规则 §8）。
+  查找顺序支持外置更新：`程序目录\rules` → 包内 `uup2iso/rules` → 仓库 `docs/规范/rules`。
+- **`matrix.py`**：`dependency-matrix.json` 模型 + `merge_observed()` —— 手写硬约束为准，
+  实测数据只补全；`providedBy` 冲突记 `matrix_conflict capability=<n> keep=hard`，且**观测数据不参与阻断**。
+- **`selection.py`**：`evaluate_selection()` —— 规则 §4.3 的逐项阻断（缺依赖 / 互斥 / 禁止组合 / 高风险未确认 /
+  未知 id），`allowed` 按 `(order, id)` 排序；`warning` 级组合放行但进 `requires_confirmation`。
+- **`scripts/check_rules.py`**：独立校验入口（退出码 2 表示规则库非法），后续可直接接 WP10-T4 的 CI 门禁。
+- `core/models/rulepack.py`：`Rule` / `RulePack` / `RuleLibrary` / `RulePackIssue`。
+
+### 数据修复（按规则 §2.2 的硬要求）
+| 规则 | 问题 | 处理 |
+| --- | --- | --- |
+| `FR4-SL-P01` 移除 Defender | `level=high` 但没有 `verify` / `recovery` | 补 `verify: capabilityAbsent(Windows-Defender)`、`reversible: false`、不可逆恢复说明 |
+| `FR5-OP-T60` UAC 级别 | 同上 | 补 `verify: regValue(ConsentPromptBehaviorAdmin=0)`、`reversible: true`、恢复步骤 |
+
+> 这两条此前按 §2.2 属「规则库无效」，现在四个字段补齐后整体通过校验。
+- 新增 `docs/规范/rules/dependency-matrix.json` 骨架（`capabilities` / `blockedCombos` 暂为空）。
+
+### 决策
+| # | 决策 | 理由 |
+| --- | --- | --- |
+| D1 | 任何一条非法即整体拒绝 | 「一半规则生效」比「完全没生效」更难排查 |
+| D2 | 环单独用 `RULEPACK_CYCLIC` | 与普通非法区分开，报错里直接给环路，便于修数据 |
+| D3 | 实测观测数据不参与阻断 | 规则 §4.1：只有手写硬约束能阻断，实测只补全 |
+| D4 | `minEngine` 只跳过不报错 | 规则 §8 明确「跳过并提示」 |
+| D5 | 高风险口径 = `level=high`；`recovery` 仅在不可逆时必填 | 与 §2.2 原文一致（`reversible` 缺省按 false 处理） |
+
+### 测试
+- `test_rules_loader.py`（15）：随包 30 条规则可加载、preset 归属、高风险可验证、重复 id / 悬空引用 /
+  Schema 违规 / 环（含自环）/ 空包一律拒绝、`minEngine` 跳过与放行。
+- `test_rules_matrix.py`（9）：缺文件回退空矩阵、非法结构报错、补全、冲突保留手写并告警、观测不参与阻断。
+- `test_rules_selection.py`（10）：缺依赖、互斥二选一、高风险确认、未知 id、`block`/`warning` 两种组合、
+  排序、空选择、真实预设回归。
+- 真实校验：`scripts/check_rules.py` → `2 个包 / 30 条规则`，preset `aggressive` 30 / `standard` 22 / `safe` 12。
+- 全量：`pytest 389 passed`；`mypy 77 files`；`ruff`/`format` 全绿。
+
+### 变更（文档）
+- `规则` v0.2 → **v0.3**：§8 增「校验落地」一行，并补落地状态与两条高风险数据补齐的说明。
+- `术语表 §1.2` 同步。
+
+### 已知限制
+- **依赖矩阵内容为空**：`capabilities` / `blockedCombos` 的实质条目随 WP4-T1（规则全量化）与 WP4-T2 填充，
+  所以当前阻断只看 `requires`/`conflicts`/高风险确认，禁止组合暂不生效。
+- **幂等无法静态校验**：规则 §5.2 的「幂等是入库准入条件」目前只能靠评审，加载器无法自动判断
+  `runCommand` 之类动作是否幂等。
+- **外置规则包未签名**：支持从 `程序目录\rules` 加载，但只做 Schema + 语义校验，不校验来源可信性；
+  规则包信任模型（是否随包/是否允许用户导入）属 WP11-T5。
+- 尚未与 `TaskConfig.slim.ruleIds` 打通：选择器的输入由调用方提供，接入编排在 WP1-T2 / WP4-T3。
+
 ## 0.1.15 — WP0-T8 工具缺失自动获取
 
 > 依据：引擎 §9.1、§9.2；进程 §2.1。验收：干净机器可自动补齐；哈希不符即拒绝；失败给手动指引。

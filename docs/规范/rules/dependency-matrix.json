@@ -1,0 +1,11 @@
+{
+  "schemaVersion": "1.0",
+  "generatedFrom": {
+    "build": "",
+    "edition": "",
+    "generatedAt": ""
+  },
+  "capabilities": [],
+  "blockedCombos": [],
+  "note": "双轨矩阵：capabilities/blockedCombos 中的手写硬约束为阻断依据；实测数据（WP4-T6 生成）只用于补全与提示，冲突记 WARN matrix_conflict。M0 阶段留空骨架，内容随 FR4/FR5 规则全量化逐步填充。"
+}

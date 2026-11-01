@@ -1,5 +1,47 @@
 # CHANGELOG
 
+## 0.1.24 — WP1-T6 CLI 输出与退出码 + WP1-T7 dry-run 预览
+
+> 依据：GUI框架 §5.6；日志 §6.1；编排 §9；输出 §10（不建暂存区）。
+> 验收：JSON 可被 CI 消费；退出码区分结果；`--dry-run` 不实际改动磁盘。
+
+### 新增
+- **T6 — CLI 输出契约**：`run` 的 **stdout 只输出一行 JSON**（`ok` / `code` + 结果字段），
+  **stderr 输出人读文本**。CI 直接 `json.loads(stdout)` 即可，**不新增 `--json` 开关**
+  （配置 §11 的最小命令集只有 `--dry-run`/`--resume`/`--debug`）。
+  JSON 字段：`ok`、`code`、`task`、`dryRun`、`logLevel`、`stages[]`、`commands[]`、`files[]`、
+  `decision`/`reuseStages`/`redoStages`（续跑）、`error`/`message`/`missingStages`（失败）。
+- **T7 — dry-run 预览增强**：`DryRunStage` 增加 `file_ops`（`FileOp(action, path, note)`），
+  新增 `DryRunReport.file_lines()` 与 `file_operations`；`PrepareStageHandler.file_operations()`
+  给出「读输入 / 建解包目录 / 写 probe.json」三类操作。阶段状态映射为稳定字符串
+  `run` / `skip` / `todo`（`todo` = 该跑但没处理器）。
+
+### 决策
+| # | 决策 | 理由 |
+| --- | --- | --- |
+| D1 | 不新增 `--json`，靠 stdout/stderr 分工 | 最小命令集不该再长一个开关；CI 与人都能各取所需 |
+| D2 | JSON 固定带 `ok` 与 `code` | 消费方不必自己推断退出码语义 |
+| D3 | 阶段 action 用 `run`/`skip`/`todo` 三值 | `todo` 明确区分「没选项跳过」与「有活但没实现」 |
+| D4 | 文件操作由处理器声明（`file_operations`） | 只有处理器知道真实路径，编排层猜不出来 |
+| D5 | 文件操作只描述不执行 | dry-run 的底线：不建目录、不写文件（输出 §10-10） |
+
+### 测试
+- `test_cli_run.py` 增至 15 项，新增：dry-run payload 的**阶段明细与 files**（且不建 work 目录）、
+  stdout 是**单个可解析 JSON**（且人读信息在 stderr）、失败时 JSON 带 `ok=false` 与具体 `error`。
+- 真实 CLI 冒烟：`run --dry-run 2>/dev/null` 输出单行 JSON（`ok=true`、8 个阶段、3 条命令、3 条文件操作）；
+  `2>&1 >/dev/null` 得到人读的阶段表 + 命令 + 文件预览。
+- 全量：`pytest 661 passed`；`mypy 104 files`；`ruff`/`format` 全绿。
+
+### 变更（文档）
+- `GUI框架` v0.11 → **v0.12**：§5.6 补「CLI 输出契约」与 dry-run 文件预览、以及「不新增 --json」的理由。
+
+### 已知限制
+- **`files[]` 目前只有 `Prepare` 的条目**：其它阶段没有处理器，自然也没有文件操作可报；
+  `todo` 阶段只会出现在 `stages[]` 里。
+- **JSON 没有 schema 版本号**：字段可能随 WS2 演进（会增加 `tool`/`bytes`/`duration` 等）；需要稳定契约时再引入 `schemaVersion`。
+- **stdout 只有「一行 JSON」**：长任务执行期间不输出进度（进度只走日志/GUI），CI 要实时输出需自行看 stderr。
+- `stderr` 的人读文本无颜色与对齐优化；终端宽度窄时会换行错位。
+
 ## 0.1.23 — WP1-T5 最小 CLI
 
 > 依据：配置 §11；日志 §3；FR9.2。

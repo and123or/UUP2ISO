@@ -223,14 +223,32 @@ def _run_with_session(
             lines.append("将执行的命令：")
             lines.extend(f"  {command}" for command in commands)
         sink.info("app.cli", "dry-run 完成", event="dry_run", task=task_id)
+        file_lines = report_dry.file_lines()
+        if file_lines:
+            lines.append("将读写的文件：")
+            lines.extend(file_lines)
         return RunOutcome(
             exit_code=int(ExitCode.SUCCESS),
             payload={
                 "task": task_id,
                 "dryRun": True,
                 "logLevel": report.level,
-                "stages": [stage.stage.value for stage in report_dry.executed],
+                "stages": [
+                    {
+                        "stage": stage.stage.value,
+                        "action": _stage_action(stage),
+                        "reason": stage.skip_reason,
+                        "substeps": list(stage.substeps),
+                        "commands": list(stage.commands),
+                        "reused": list(stage.reused),
+                    }
+                    for stage in report_dry.stages
+                ],
                 "commands": list(commands),
+                "files": [
+                    {"stage": stage_name, "action": op.action, "path": op.path}
+                    for stage_name, op in report_dry.file_operations
+                ],
                 **resume_payload,
             },
             lines=tuple(lines),
@@ -279,6 +297,13 @@ def _run_with_session(
         },
         lines=tuple(lines),
     )
+
+
+def _stage_action(stage: object) -> str:
+    """把 dry-run 阶段的三种状态映射成稳定字符串（T6 的 JSON 契约）。"""
+    if getattr(stage, "handler_missing", False):
+        return "todo"
+    return "run" if getattr(stage, "will_run", False) else "skip"
 
 
 def _error(code: str, exit_code: int, message: str) -> RunOutcome:

@@ -115,12 +115,24 @@ def run(
         typer.Option("--debug", help="本次运行输出 DEBUG 级别（不写入配置、不影响下次）。"),
     ] = False,
 ) -> None:
-    """按配置文件执行一次任务。"""
+    """按配置文件执行一次任务。
+
+    输出契约（T6）：**stdout = 单行 JSON**（`ok` / `code` / `task` / `stages` …），
+    **stderr = 人读文本**。这样 CI 直接 `json.loads(stdout)` 即可，不需要额外开关。
+    """
     outcome = execute_run(
         RunOptions(config_path=config, dry_run=dry_run, resume=resume, debug=debug)
     )
-    for line in outcome.lines:
-        typer.echo(line)
+
+    # CI 消费：stdout 只有一个 JSON 对象；人读信息走 stderr（可用 2>/dev/null 静音）
+    payload = {
+        "ok": outcome.exit_code in (0, 1),
+        **dict(getattr(outcome, "payload", {})),
+        "code": outcome.exit_code,
+    }
+    typer.echo(json.dumps(payload, ensure_ascii=False))
+    for line in getattr(outcome, "lines", ()):
+        typer.echo(line, err=True)
     raise typer.Exit(code=outcome.exit_code)
 
 

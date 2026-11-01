@@ -136,6 +136,25 @@ class PrepareStageHandler:
             commands.append(f"wimlib-imagex info image/install.wim  # 自检 {source}")
         return tuple(commands)
 
+    def file_operations(self, ctx: StageContext) -> tuple[object, ...]:
+        """`--dry-run` 用：本阶段会读/写哪些文件（只描述，不执行）。"""
+        from uup2iso.application.pipeline.orchestrator import FileOp
+
+        config: TaskConfig = ctx.config
+        plan = ctx.plan
+        executed = {substep.name for substep in plan.executed_substeps}
+        source = resolve_input_path(config)
+        work = str(ctx.work_dir)
+
+        ops: list[FileOp] = [FileOp("read", str(source), "输入只读，永不修改")]
+        if "materialize" in executed:
+            ops.append(FileOp("create", f"{work}\\image\\install.wim", "ESD 物化为 LZX WIM"))
+        if "extract" in executed:
+            ops.append(FileOp("create", f"{work}\\image\\", "ISO 解包目录"))
+        if "probe" in executed:
+            ops.append(FileOp("create", f"{work}\\input\\probe.json", "探测结果（只读诊断）"))
+        return tuple(ops)
+
     def reusable_artifacts(self, ctx: StageContext) -> tuple[str, ...]:
         """已存在且与本次一致时可复用产物（`selfcheck` 通过才算数）。"""
         work_dir: Path = ctx.work_dir

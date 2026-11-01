@@ -35,6 +35,7 @@ from uup2iso.infrastructure.progress.hub import ProgressHub
 
 __all__ = [
     "DryRunReport",
+    "FileOp",
     "DryRunStage",
     "PipelineOrchestrator",
     "PipelineRun",
@@ -78,6 +79,19 @@ class PipelineRun:
 
 
 @dataclass(frozen=True, slots=True)
+class FileOp:
+    """`--dry-run` 里的一个文件操作（只描述，不执行）。"""
+
+    action: str
+    path: str
+    note: str = ""
+
+    def line(self) -> str:
+        suffix = f"  # {self.note}" if self.note else ""
+        return f"  {self.action:<6} {self.path}{suffix}"
+
+
+@dataclass(frozen=True, slots=True)
 class DryRunStage:
     """`--dry-run` 中一个阶段的说明。"""
 
@@ -87,6 +101,7 @@ class DryRunStage:
     substeps: tuple[str, ...] = ()
     commands: tuple[str, ...] = ()
     reused: tuple[str, ...] = ()
+    file_ops: tuple[FileOp, ...] = ()
     handler_missing: bool = False
     """该阶段要执行、但当前没有处理器（WS2/WS3 尚未落地时的诚实标注）。"""
 
@@ -118,6 +133,20 @@ class DryRunReport:
     def lines(self) -> tuple[str, ...]:
         header = [f"entry={self.entry}  startStage={self.start_stage.value}"]
         return tuple(header + [stage.line() for stage in self.stages])
+
+    def file_lines(self) -> tuple[str, ...]:
+        """按阶段列出将发生的文件操作（T7：不改动磁盘，只预览）。"""
+        lines: list[str] = []
+        for stage in self.stages:
+            if not stage.file_ops:
+                continue
+            lines.append(f"[{stage.stage.value}]")
+            lines.extend(op.line() for op in stage.file_ops)
+        return tuple(lines)
+
+    @property
+    def file_operations(self) -> tuple[tuple[str, FileOp], ...]:
+        return tuple((stage.stage.value, op) for stage in self.stages for op in stage.file_ops)
 
     def command_lines(self) -> tuple[str, ...]:
         lines: list[str] = []
@@ -469,6 +498,8 @@ class PipelineOrchestrator:
             has_describe, has_reuse = has_dry_run_info(handler)
             commands = tuple(handler.describe(ctx)) if has_describe else ()  # type: ignore[attr-defined]
             reused = tuple(handler.reusable_artifacts(ctx)) if has_reuse else ()  # type: ignore[attr-defined]
+            ops_source = getattr(handler, "file_operations", None)
+            file_ops = tuple(ops_source(ctx)) if callable(ops_source) else ()
             stages.append(
                 DryRunStage(
                     stage=stage_plan.stage,
@@ -476,6 +507,7 @@ class PipelineOrchestrator:
                     substeps=tuple(sub.name for sub in stage_plan.executed_substeps),
                     commands=commands,
                     reused=reused,
+                    file_ops=file_ops,
                 )
             )
 

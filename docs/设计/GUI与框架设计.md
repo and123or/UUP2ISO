@@ -1,6 +1,6 @@
 # UUP2ISO GUI 界面与框架设计
 
-> 版本：v0.11
+> 版本：v0.12
 > 分类：设计（结构与界面） ｜ 目录：`docs/设计/`（草案）
 > 依据：`docs/需求/需求分析.md`（FR0–FR10）
 > 配套：`docs/设计/软件架构图.md`、`docs/设计/软件流程图.md`
@@ -278,6 +278,13 @@ stateDiagram-v2
 | 已有实例运行 | 5 | GUI 激活已有窗口后退出；CLI 输出 `already_running` 后退出 |
 
 错误对象含：阶段、涉及文件、外部工具、返回码、原始输出片段。
+
+> **CLI 输出契约（v0.12，M1 / WP1-T6、T7）**：**stdout 只输出一行 JSON**（供 CI 直接 `json.loads`），
+> **stderr 输出人读文本**（可用 `2>/dev/null` 静音）。JSON 固定含 `ok`（0/1 为真）与 `code`（退出码），
+> 其余字段按结果类型追加：`task`/`stages`/`commands`/`files`/`decision`/`error`/`missingStages`。
+> **不新增 `--json` 开关**——配置 §11 的最小命令集只有 `--dry-run`/`--resume`/`--debug`，
+> 输出格式不该再多一个开关。`--dry-run` 列出阶段（`run`/`skip`/`todo`）、外部命令与**将读写的文件**，
+> 且不创建暂存区、不写伴生、不建 `work` 目录。
 
 ---
 

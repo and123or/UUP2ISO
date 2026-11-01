@@ -66,6 +66,31 @@ def test_dry_run_prints_plan_and_creates_nothing(tmp_path: Path) -> None:
     assert logs.is_dir(), "dry-run 仍应留下运行日志"
 
 
+def test_dry_run_payload_has_stage_details_and_files(tmp_path: Path) -> None:
+    """T7：预览要能给 CI 结构化的「阶段 + 命令 + 文件操作」。"""
+    config_path = write_config(tmp_path)
+
+    outcome = execute_run(
+        RunOptions(config_path=config_path, dry_run=True),
+        log_dir=tmp_path / "logs",
+        work_dir=tmp_path / "work",
+        mutex_name=unique_mutex(),
+    )
+
+    stages = outcome.payload["stages"]
+    assert isinstance(stages, list) and stages
+    prepare = next(item for item in stages if item["stage"] == "Prepare")
+    assert prepare["action"] == "run"
+    assert "probe" in prepare["substeps"]
+    assert prepare["commands"], "Prepare 应给出命令"
+    assert any(item["action"] == "skip" for item in stages), "跳过阶段也要在 JSON 里"
+
+    files = outcome.payload["files"]
+    assert any(item["path"].endswith("probe.json") for item in files)
+    assert all(item["action"] in {"read", "create", "delete"} for item in files)
+    assert not (tmp_path / "work").exists(), "预览不得创建目录"
+
+
 def test_debug_flag_only_affects_this_run(tmp_path: Path) -> None:
     config_path = write_config(tmp_path)
     before = config_path.read_bytes()
@@ -258,6 +283,54 @@ def test_cli_passes_flags_to_runner(tmp_path: Path, monkeypatch: pytest.MonkeyPa
         "resume": True,
         "debug": True,
     }
+
+
+def test_stdout_is_single_json_object(monkeypatch: pytest.MonkeyPatch) -> None:
+    """T6：CI 直接 json.loads(stdout) 就能消费。"""
+    from uup2iso.cli import main as cli_main
+
+    def fake_run(_options: RunOptions) -> object:
+        return type(
+            "O",
+            (),
+            {
+                "exit_code": 0,
+                "payload": {"task": "abcd1234", "dryRun": True},
+                "lines": ("人读的一行",),
+            },
+        )()
+
+    monkeypatch.setattr(cli_main, "execute_run", fake_run)
+    result = CliRunner().invoke(app, ["run", "--config", "task.json", "--dry-run"])
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout.strip())
+    assert payload == {"ok": True, "task": "abcd1234", "dryRun": True, "code": 0}
+    assert "人读的一行" in result.stderr, "人读信息走 stderr"
+
+
+def test_failed_run_reports_code_in_json(monkeypatch: pytest.MonkeyPatch) -> None:
+    from uup2iso.cli import main as cli_main
+
+    def fake_run(_options: RunOptions) -> object:
+        return type(
+            "O",
+            (),
+            {
+                "exit_code": 4,
+                "payload": {"error": "CONFIG_CHANGED", "message": "配置已变更"},
+                "lines": (),
+            },
+        )()
+
+    monkeypatch.setattr(cli_main, "execute_run", fake_run)
+    result = CliRunner().invoke(app, ["run", "--config", "task.json", "--resume"])
+
+    assert result.exit_code == 4
+    payload = json.loads(result.stdout.strip())
+    assert payload["ok"] is False
+    assert payload["code"] == 4
+    assert payload["error"] == "CONFIG_CHANGED"
 
 
 def test_version_still_works() -> None:

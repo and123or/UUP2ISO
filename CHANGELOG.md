@@ -1,5 +1,55 @@
 # CHANGELOG
 
+## 0.1.21 — WP1-T3 检查点与续跑
+
+> 依据：编排 §4.1、§4.2、§5、§6、§9、§10。
+> 验收：子步骤级续跑；配置/输入变更时拒绝续跑；清理只删中间物。
+
+### 新增
+- **`core/models/checkpoint.py`**：`Checkpoint` / `StageRecord` / `SubstepRecord` / `ArtifactRecord` /
+  `TaskRuntime` / `ResumePlan` / `ResumeDecision`。状态取值**复用** `core/models/enums.py` 的
+  `TaskState` / `StageState` / `SubstepState`（不另造一套）。
+- **`infrastructure/storage/checkpoint_store.py`**：`checkpoint.json` 原子写（`tmp` → `flush` → `fsync` → `replace`）、
+  `heartbeat()` 心跳、损坏识别（`corrupt=True` 而不是抛到启动路径）。
+- **`application/task_session/session.py`**：`TaskSession` —— 状态迁移（`begin_stage` / `end_stage` /
+  `begin_substep` / `end_substep` / `record_artifact` / `finish` / `interrupt`）+ `plan_resume()`：
+  - 四条件（配置指纹 / 输入指纹 / 状态 / 产物大小与 SHA256）判定复用，`.part`/`*.tmp` 永不参与；
+  - 五个分支：`NEW_TASK` / `ALREADY_SUCCEEDED` / `RESUME` / `REJECT_CONFIG_CHANGED` / `REJECT_INPUT_CHANGED`，
+    `running` 则判 `INTERRUPTED`；
+  - **子步骤级续跑**：给出「第一个非 done 的子步骤」（`resume_from_substep`）。
+- **`infrastructure/storage/task_record_store.py`**：`runtime` 段合并写入（保留 config 等字段）、
+  `summaries()` 列表、`prune()` 保留最近 50 个（删记录 + 删 `work\<id>\`，**运行中永不清理**，
+  **绝不碰输出目录**）。
+
+### 决策
+| # | 决策 | 理由 |
+| --- | --- | --- |
+| D1 | 状态枚举复用 `enums.py`，只新增「记录结构」 | 术语表 §2.2 是唯一写法来源，再造一套必然漂移 |
+| D2 | 检查点写用 `fsync` + `replace` | 断电时要么旧文件要么新文件，编排 §12-8 要求「不出现半截 JSON」 |
+| D3 | 损坏检查点按「新任务」处理并告警 | 让程序起不来比丢一次续跑更糟 |
+| D4 | 阶段状态未知（缺条目）即判重做 | 宁可重做，不可把不确定状态当成可复用 |
+| D5 | 删除前校验 `work_root/<合法id>` | 防路径穿越误删（`prune` 会 `rmtree`） |
+| D6 | 只删记录与 `work\<id>\`，不碰输出目录 | 编排 §10：最终产物属于用户 |
+
+### 测试
+- `test_checkpoint_store.py`（8）：初始化字段（驼峰）、读写回环、原子写无残留 tmp、缺失/损坏/结构非法三态、
+  心跳更新、未知字段前向兼容。
+- `test_task_session.py`（19）：状态迁移持久化、子步骤即时写入、产物 size+sha、`interrupt` 幂等、
+  五个续跑分支、子步骤级续跑点、四条件（大小不符/产物缺失/`.part` 不复用）、跳过阶段视为可复用。
+- `test_task_record_store.py`（10）：runtime 合并保留 config、列表跳过坏文件、保留 50 个删最旧、
+  **不碰输出目录**、运行中永不清理、`keep` 参数、无 work_root 时只删记录、空目录无害。
+- 全量：`pytest 587 passed`；`mypy 98 files`；`ruff`/`format` 全绿。
+
+### 变更（文档）
+- `编排` v0.3 → **v0.4**：§10 后补落地状态（已实现范围 + 未接线项）。
+
+### 已知限制
+- **编排器还不会写检查点**：`PipelineOrchestrator.run()` 目前不持有 `TaskSession`；接线在 WP1-T5（`run --resume`）
+  与 WP9-T12（任务列表）时完成。因此「强杀后续跑」现在只有会话层可用，端到端还没跑通。
+- **主键心跳未启动定时器**：`heartbeat()` 已实现，但没有 60 秒定时器调用它（需要长驻任务循环，属 T5）。
+- 子步骤级重试（下载 3 次 / 校验 2 次）仍在各阶段处理器内，本层只做阶段级。
+- `.part`/`staging.json` 的**产物侧**状态机（输出规范 §7）尚未实现，本层只保证「不把 `.part` 当可复用」。
+
 ## 0.1.20 — WP1-T2 PipelineOrchestrator
 
 > 依据：编排 §2、§7、§8、§11、§12。验收：`--dry-run` 列出阶段、命令与将复用产物。

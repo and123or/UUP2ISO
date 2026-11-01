@@ -11,6 +11,15 @@
 from __future__ import annotations
 
 from uup2iso.core.models.build import BuildInfo
+from uup2iso.core.models.checkpoint import (
+    ArtifactRecord,
+    Checkpoint,
+    ResumeDecision,
+    ResumePlan,
+    StageRecord,
+    SubstepRecord,
+    TaskRuntime,
+)
 from uup2iso.core.models.config import (
     CONFIG_SCHEMA_VERSION,
     ConfigIssue,
@@ -59,7 +68,14 @@ from uup2iso.core.models.tools import EngineCapabilities, ToolInfo, ToolSource
 from uup2iso.core.models.verification import VerifyFinding, VerifyReport, VerifySeverity
 
 __all__ = [
+    "ArtifactRecord",
     "CONFIG_SCHEMA_VERSION",
+    "Checkpoint",
+    "ResumeDecision",
+    "ResumePlan",
+    "StageRecord",
+    "SubstepRecord",
+    "TaskRuntime",
     "SCHEMA_VERSION",
     "ConfigIssue",
     "ConvertSection",

@@ -28,6 +28,7 @@ __all__ = [
     "ConfigSchemaError",
     "ConfigSemanticError",
     "ConfigVersionError",
+    "InputError",
     "UserCancelledError",
     "DependencyError",
     "InputRejectedError",
@@ -191,6 +192,14 @@ class AlreadyRunningError(Uup2IsoError):
 
     def __init__(self, message: str = "程序已在运行") -> None:
         super().__init__(message)
+
+
+class InputError(DependencyError):
+    """输入问题（`INPUT_*`，退出码 4）。
+
+    加密 ESD、多卷 SWM、分片 ESD、非安装介质、多候选歧义都属于这一类：
+    **用户必须换输入或先处理输入**，重试没有意义。
+    """
 
 
 class ConfigError(UsageError):

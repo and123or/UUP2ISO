@@ -11,7 +11,7 @@ import uup2iso
 WORKSPACE = Path(__file__).resolve().parents[1]
 
 # 同步点之一：断言值必须与 pyproject.toml / __init__.py 一致（改版本时三处同改）。
-EXPECTED_VERSION = "0.1.21"
+EXPECTED_VERSION = "0.1.22"
 
 
 def test_package_version_constant() -> None:

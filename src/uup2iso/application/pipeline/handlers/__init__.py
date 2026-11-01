@@ -25,6 +25,9 @@ from uup2iso.core.models.pipeline import StageKind, StagePlan
 
 __all__ = [
     "CleanupHook",
+    "PrepareOps",
+    "PrepareOutcome",
+    "PrepareStageHandler",
     "StageContext",
     "StageHandler",
     "StageOutcome",
@@ -99,3 +102,10 @@ def has_dry_run_info(handler: object) -> tuple[bool, bool]:
         callable(getattr(handler, "describe", None)),
         callable(getattr(handler, "reusable_artifacts", None)),
     )
+
+
+from uup2iso.application.pipeline.handlers.prepare import (  # noqa: E402 - 放末尾避免循环导入
+    PrepareOps,
+    PrepareOutcome,
+    PrepareStageHandler,
+)

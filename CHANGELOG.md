@@ -1,5 +1,56 @@
 # CHANGELOG
 
+## 0.1.22 — WP1-T4 输入识别与兼容校验
+
+> 依据：输入 §2、§3、§4、§5、§7。验收：扩展名误标可识别；拒绝时给出具体项；`INPUT_*` 退出码 4。
+
+### 新增
+- **`infrastructure/input/sniff.py`**：64 KB 读头判类型 —— WIM 魔数 `MSWIM\0\0\0`、
+  ISO 的 `CD001`@**32769**（读 32 KB 会差 6 字节，所以固定 64 KB）、UUP 文件夹特征
+  （清单 + ≥1 个 `.cab/.esd/.msu`）；**头优先于扩展名**，不符记 `extension_mismatch`。
+- **`infrastructure/input/wiminfo.py`**：解析 `wimlib info`（XML 优先、文本兜底），
+  edition 归一化（整名表 + 去前缀表两级），分片（`PART TOTAL>1` / `Part Number: n of m`）与
+  LZMS（→ ESD）识别；`classify_wimlib_failure()` 把 `encrypted` 归为 `INPUT_ENCRYPTED`。
+- **`infrastructure/input/probe.py`**：`InputProber.probe()` —— 把候选收敛成一个输入，
+  按 §3 拒绝加密 ESD / 多卷 SWM（附 DISM 合并指引）/ 分片 ESD / 非 Windows / 多候选歧义；
+  `ProbeReport.to_probe_json()` 输出 §4 的 `probe.json` 结构。
+- **`application/pipeline/handlers/prepare.py`**：`PrepareStageHandler` —— 按入口裁剪执行
+  `probe → materialize|extract → selfcheck`，原子写 `input\probe.json`，`selfcheck` 失败抛
+  `INPUT_DAMAGED`；提供 `describe()`（dry-run 命令）与 `reusable_artifacts()`。
+- `core/errors`：新增 `InputError(DependencyError)`（退出码 4），具体码由调用方给出。
+
+### 决策
+| # | 决策 | 理由 |
+| --- | --- | --- |
+| D1 | 读头固定 64 KB | ISO 的 `CD001` 在 32769，32 KB 差 6 字节永远判不出（输入 §2.2） |
+| D2 | 头优先、扩展名只做告警 | 扩展名误标是真实场景；按真实类型处理才安全 |
+| D3 | 多候选一律 `INPUT_AMBIGUOUS` | 猜错代价是跑完几十分钟才发现输入错了 |
+| D4 | 加密/多卷/分片/非 Windows **早拒绝** | 不尝试、不产半成品（输入 §3） |
+| D5 | `Prepare` 的具体动作走 `PrepareOps` 注入 | 引擎层未就绪也能测顺序、产物与错误分类 |
+| D6 | `probe.json` 原子写 | 与检查点同口径，避免半截 JSON |
+
+### 测试
+- `test_input_sniff.py`（15）：魔数/ISO 偏移/扩展名误标（两个方向）/ESD 家族/SWM（按名与按兄弟卷）/
+  UUP 文件夹三态/目录多候选/顶层扫描不递归。
+- `test_input_wiminfo.py`（14）：XML 双 edition、分片、LZMS、文本兜底、空输出与坏 XML、
+  edition 归一化六例、加密分类。
+- `test_input_probe.py`（14）：ISO 待解包、`probe.json` 字段、LZMS 细化、未知 edition 告警、
+  分片/加密/SWM/非 Windows 四类拒绝、目录歧义列候选、UUP 接受、缺失与未知文件、扩展名误标透传。
+- `test_prepare_handler.py`（9）：ISO 走 extract、ESD 走 materialize、`probe.json` 落盘且无 tmp、
+  自检失败 → `INPUT_DAMAGED`、缺 ops → `INTERNAL_ERROR`、dry-run 命令、可复用产物、入口 A 无本地输入。
+- 全量：`pytest 645 passed`；`mypy 103 files`；`ruff`/`format` 全绿。
+
+### 变更（文档）
+- `输入` v0.2 → **v0.3**：§7 前补落地状态（已实现范围 + 未接线项）；`术语表 §1.2` 同步。
+
+### 已知限制
+- **真实 `PrepareOps` 未实现**：wimlib/7z 调用、ISO 解包、ESD 物化都要等引擎层（WS2）。因此
+  `Prepare` 现在能跑通「顺序 + 产物 + 错误分类」，但解不出真实文件。
+- **ISO 的 edition 枚举要解包后二次探测**：现在只记 `images_pending_extract`，`probe.json.images` 为空。
+- **`bootable` 恒为 false**：没有解析 El Torito，`warnings` 里已标 `bootable_unknown`。
+- UUP 文件夹特征是**启发式**（清单名 + 归档后缀），未做 `ConvertConfig.ini` 内容校验。
+- `InputProber` 的 `wim_info` 默认未注入：不注入时只做头嗅探，不做加密/分片/edition 判定。
+
 ## 0.1.21 — WP1-T3 检查点与续跑
 
 > 依据：编排 §4.1、§4.2、§5、§6、§9、§10。

@@ -1,5 +1,48 @@
 # CHANGELOG
 
+## 0.1.23 — WP1-T5 最小 CLI
+
+> 依据：配置 §11；日志 §3；FR9.2。
+> 验收：仅接受配置文件与运行开关；`--debug` 仅本次生效；与 GUI 共用同一配置契约。
+
+### 新增
+- **`application/cli_runner.py`**：`run` 的业务编排（CLI 只解析参数、调它、把结果变退出码）：
+  加载配置（V0/V1/V2）→ 抢单实例 + 建日志 → 算阶段计划与续跑判定 → `--dry-run` 或执行。
+  - 配置错误 → 退出 4，`payload={"error": <CONFIG_*>, ...}`，**不建日志**；
+  - 单实例冲突 → 退出 5，`payload=already_running`，**不建日志、不清理**；
+  - 续跑：配置变了 → 退出 4 `CONFIG_CHANGED`；上次已完成 → 退出 0 并提示；
+  - 非 dry-run 且处理器不全 → 退出 4 `not_implemented` 并**列出缺哪几个阶段**；
+  - `dry_run` 打印阶段（`[run]/[skip]/[TODO]`）与将执行的命令，**不建 work 目录**。
+- **`cli/main.py`**：`run --config <file> [--dry-run] [--resume] [--debug]`（参数改 `Annotated`，
+  去掉 `typer.Option` 作为默认值触发的 B008）；`--config` 必填；根回调对 `run` 跳过互斥（由 runner 自己抢）。
+
+### 决策
+| # | 决策 | 理由 |
+| --- | --- | --- |
+| D1 | `run` 自己抢互斥，根回调跳过它 | 日志必须在「抢到 + 建会话」之后才建；回调里抢会导致重复抢同一把锁 |
+| D2 | 处理器不全时**明确拒绝**（`not_implemented` + 阶段列表） | 比跑到一半崩在缺处理器上清楚得多 |
+| D3 | 「上次已完成」退 0 而不是报错 | 它不是失败，只是没活干（编排 §9） |
+| D4 | `--debug` 只影响本次日志级别 | 日志 §3：一次性开关，不写配置、不改设置 |
+| D5 | 用 `Annotated[...]` 声明参数 | `typer.Option` 作默认值会触发 B008；Annotated 是 Typer 现行推荐写法 |
+
+### 测试
+- `test_cli_run.py`（12）：dry-run 打印计划且不建 work 目录、`--debug` 仅本次（配置字节不变）、
+  坏 JSON/语义错误退 4 且不建日志、冲突退 5 且不建日志、续跑配置变更退 4、无检查点判 new_task、
+  非 dry-run 报 `not_implemented` 列阶段、缺 `--config` 退 2、单横线参数退 2、参数透传、`version` 仍可用。
+- 真实 CLI 冒烟：`run --config <tmp> --dry-run` → 打印 8 阶段与 3 条 Prepare 命令，退出 0；
+  坏配置 → 退出 4；非 dry-run → 退出 4 并列出 `Slim、Output`。
+- 全量：`pytest 658 passed`；`mypy 104 files`；`ruff`/`format` 全绿。
+
+### 变更（文档）
+- `配置` v0.4 → **v0.5**：§11 补落地状态（参数写法、`--debug` 不写回、`run` 自己抢互斥）。
+
+### 已知限制
+- **还不能真正执行任务**：`Fetch`/`Convert`/`Slim`/`Optimize`/`Integrate`/`Unattend`/`Output` 都没有处理器，
+  `Prepare` 的底层也缺 `PrepareOps`，所以非 dry-run 一律以 `not_implemented` 退出 4。
+- **JSON 输出的正式形态属 WP1-T6**：现在只在 `payload` 里备好数据，CLI 仍打印人读文本。
+- **Ctrl+C 取消未接线**：`orchestrator.run(cancel=None)`，取消语义（退出 3）要等长驻任务循环。
+- `--dry-run` 的「文件操作预览」属 WP1-T7；当前只到「阶段 + 命令 + 可复用产物」。
+
 ## 0.1.22 — WP1-T4 输入识别与兼容校验
 
 > 依据：输入 §2、§3、§4、§5、§7。验收：扩展名误标可识别；拒绝时给出具体项；`INPUT_*` 退出码 4。

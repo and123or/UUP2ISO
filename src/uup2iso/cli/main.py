@@ -1,21 +1,26 @@
-"""最小 CLI 入口。
+"""最小 CLI（WP1-T5）：`run --config` + 运行开关 + `version`。
 
-WP0-T1 只落地可验证的 ``version`` 命令；完整最小命令集
-（``run --config`` / ``--dry-run`` / ``--resume`` / ``--debug``）由 WP1-T5 实现，
-业务选项一律写进 ``TaskConfig``，不提供字段级参数覆盖。
+边界（配置 §11）：**只接受配置文件与运行开关**，不做字段级参数覆盖——
+`--source-url`、`--compression` 这类参数一律不提供，业务选项只能写进 `TaskConfig`。
 
-单实例（WP0-T11）：除只读命令外，每个命令执行前抢 ``Local\\UUP2ISO.SingleInstance``；
-抢不到就输出 ``{"error":"already_running","code":5}`` 并以 **5** 退出，且**不建日志**。
+参数写法统一双横线（日志 §3）：`--config` / `--dry-run` / `--resume` / `--debug`；
+单横线（`-debug`）按未知参数报错（Typer 默认行为，退出码 2）。
+
+单实例（WP0-T11）：除只读命令外，每个命令执行前抢 `Local\\UUP2ISO.SingleInstance`；
+抢不到输出 `{"error":"already_running","code":5}` 并以 **5** 退出，且**不建日志**。
 """
 
 from __future__ import annotations
 
 import json
 from collections.abc import Callable
+from pathlib import Path
+from typing import Annotated
 
 import typer
 
 from uup2iso import __version__
+from uup2iso.application.cli_runner import RunOptions, execute_run
 from uup2iso.application.startup import (
     ALREADY_RUNNING_PAYLOAD,
     StartupConflictError,
@@ -48,15 +53,8 @@ def acquire_cli_guard(
 ) -> StartupSession | None:
     """为命令抢单实例；冲突时输出 JSON 并抛 ``Exit(5)``。
 
-    Args:
-        command: 当前子命令名；``None``（无子命令）视为需要互斥。
-        session: 可注入的会话（测试用）。
-
-    Returns:
-        抢到的会话；豁免命令返回 ``None``。
-
-    Raises:
-        typer.Exit: 已有实例在运行（退出码 5）。
+    ``run`` 自己会在 :func:`~uup2iso.application.cli_runner.execute_run` 里抢（它要先建会话再记日志），
+    所以根回调对 ``run`` 跳过，避免同一次启动重复抢同一把互斥量。
     """
     if command is not None and command in GUARD_EXEMPT_COMMANDS:
         return None
@@ -81,6 +79,8 @@ def _root(ctx: typer.Context) -> None:
     注意：必须保留此根回调。Typer 在「只有一个命令且无回调」时会把该命令
     提升为根命令，导致 ``uup2iso version`` 被当成多余参数而报错。
     """
+    if ctx.invoked_subcommand == "run":
+        return
     session = acquire_cli_guard(command=ctx.invoked_subcommand)
     if session is not None:
         ctx.call_on_close(release_instance_with(session))
@@ -90,6 +90,38 @@ def _root(ctx: typer.Context) -> None:
 def version() -> None:
     """打印程序版本号。"""
     typer.echo(__version__)
+
+
+@app.command()
+def run(
+    config: Annotated[
+        Path,
+        typer.Option(
+            "--config",
+            help="任务配置文件（TaskConfig JSON）。业务选项只能写在这个文件里。",
+            dir_okay=False,
+        ),
+    ],
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help="只预览：打印阶段、命令与将复用产物，不改动磁盘。"),
+    ] = False,
+    resume: Annotated[
+        bool,
+        typer.Option("--resume", help="从检查点续跑（配置或输入变化时拒绝）。"),
+    ] = False,
+    debug: Annotated[
+        bool,
+        typer.Option("--debug", help="本次运行输出 DEBUG 级别（不写入配置、不影响下次）。"),
+    ] = False,
+) -> None:
+    """按配置文件执行一次任务。"""
+    outcome = execute_run(
+        RunOptions(config_path=config, dry_run=dry_run, resume=resume, debug=debug)
+    )
+    for line in outcome.lines:
+        typer.echo(line)
+    raise typer.Exit(code=outcome.exit_code)
 
 
 def main() -> None:

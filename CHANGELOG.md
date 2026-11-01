@@ -1,5 +1,50 @@
 # CHANGELOG
 
+## 0.1.20 — WP1-T2 PipelineOrchestrator
+
+> 依据：编排 §2、§7、§8、§11、§12。验收：`--dry-run` 列出阶段、命令与将复用产物。
+
+### 新增（`application/pipeline/`）
+- **`orchestrator.py`**：`PipelineOrchestrator.run()` —— 按 T1 的计划推进 8 阶段：
+  跳过阶段记 `stage=skipped reason=…`；执行阶段按需重试；取消在两处检查（阶段之间、尝试之间）；
+  事件按编排 §11 落日志（`task_started` / `stage_started` / `stage_finished` / `stage_skipped` /
+  `stage_retry` / `task_cancelled` / `task_finished`）。
+  `PipelineRun.exit_code` 直接可交进程：成功 0、取消 3、失败按错误码（配置 4 / 兜底 2）。
+- **`retry.py`**：`RetryPolicy` + `is_retryable()` —— **只按白名单重试**
+  （`SOURCE_UNAVAILABLE` / `SOURCE_RATE_LIMITED` / `TOOL_FAILED`），阶段级兜底 2 次、默认 30s 退避；
+  取消、`CONFIG_*`、`INPUT_*`、`DISK_FULL`、跨卷、未知异常一律不重试。
+- **`handlers.py`**：`StageHandler` 协议、`StageContext`（含 `attempt` / `cancel` / `log` / `progress`）、
+  `StageOutcome`；`describe()` / `reusable_artifacts()` 为可选，供 dry-run。
+- **`dry_run()`**：输出 `DryRunReport`（`lines()` 与 `command_lines()`），列出「将执行/跳过 + 子步骤 + 命令 + 将复用产物」；
+  **不建目录、不写检查点**；缺处理器的阶段标 `[TODO] … (无处理器)` 而不是假装能跑。
+
+### 决策
+| # | 决策 | 理由 |
+| --- | --- | --- |
+| D1 | 编排器只管「跑不跑/跑几次/怎么记账」，不碰具体命令 | 命令随工具与版本变化，属阶段处理器；编排只管流程 |
+| D2 | 非白名单异常**不重试** | 盲目重试会把确定性问题变成「绕 3 次再失败」，还拖长日志 |
+| D3 | 清理钩子只在「阶段含挂载子步骤」且要重试时调用 | `Output` 之类阶段没有挂载，无需 `Cleanup-Wim` |
+| D4 | 清理失败即停止重试 | 残留清不掉还重跑，只会把脏状态叠得更深 |
+| D5 | 取消落在「下一个阶段」而不是当前阶段 | 当前阶段已 `succeeded`，标 cancelled 会篡改事实 |
+| D6 | dry-run 对缺处理器标 `[TODO]` | 诚实显示「这阶段还跑不了」，比列空命令好 |
+
+### 测试
+- `test_orchestrator.py`（18）：按序执行、跳过阶段不调处理器、白名单重试后成功（3 次尝试 / 2 条 `stage_retry`）、
+  重试耗尽退出 2、配置错误不重试退出 4、取消前不跑、取消中保留产物且下一个阶段标 cancelled、
+  处理器抛 `UserCancelledError` 按取消处理、挂载阶段重试前清理、清理失败中止、非挂载阶段不清理、
+  缺处理器失败且不继续、进度只覆盖执行阶段、日志事件齐全、dry-run 列命令与复用、dry-run 不建目录、缺处理器标 TODO。
+- 全量：`pytest 546 passed`（新增 18 项）；`mypy 94 files`；`ruff`/`format` 全绿。
+
+### 变更（文档）
+- `编排` v0.2 → **v0.3**：§4.2 后补落地状态（已实现范围 + 未实现项：检查点/续跑、输入识别、阶段处理器）。
+
+### 已知限制
+- **没有任何真实阶段处理器**：仓库里只有协议与测试替身。真正干活的是 WP1-T4（`Prepare`）与 WS2/WS3
+  （`Fetch`/`Convert`/`Slim`/`Optimize`/`Integrate`/`Unattend`/`Output`），所以现在还跑不出一条真实任务。
+- **检查点与续跑未实现**（WP1-T3）：`checkpoint.json`、`.part`/`staging.json` 状态机、任务记录保留 50 个。
+- `--dry-run` 尚未接到 CLI（WP1-T5）；目前只有 `orchestrator.dry_run()` 这个编程入口。
+- 重试的**子步骤级**次数（下载 3 次、校验 2 次等）不在本层：由各阶段处理器内部实现。
+
 ## 0.1.19 — WP1-T1 阶段模型与 StagePlanner（M1 起点）
 
 > 依据：编排 §2、§2.1、§3；架构 §10；流程图 §2.1；输入 §6。

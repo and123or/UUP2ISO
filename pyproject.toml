@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "uup2iso"
-version = "0.1.19"
+version = "0.1.20"
 description = "UUP -> ISO 构建与精简工具（Windows 10/11 x64，PySide6 + PyInstaller）"
 readme = "README.md"
 requires-python = ">=3.12,<3.14"

@@ -1,5 +1,64 @@
 # CHANGELOG
 
+## 0.1.15 — WP0-T8 工具缺失自动获取
+
+> 依据：引擎 §9.1、§9.2；进程 §2.1。验收：干净机器可自动补齐；哈希不符即拒绝；失败给手动指引。
+
+### 新增
+- **`infrastructure/tools/fetcher.py`**：`ToolFetcher` —— 按清单 URL 下载 → SHA256 校验 → 解压到暂存 →
+  原子落位（`tools\<工具名>\<exe>`，同时带上同目录 DLL）。
+  - **只解 zip**：7-Zip 官方只发 `.exe/.msi/.7z`，解 `.7z` 需 7z 自身（引导悖论），故 7z 走随包内置；
+  - **域名白名单**（HTTPS 限定）：`github.com` / `release-assets.githubusercontent.com` /
+    `objects.githubusercontent.com` / `wimlib.net` / `7-zip.org`；
+  - **手工放置通道**：受限网络下把 `<name>-<version>.zip` 放进 `tools\.download\`，哈希一致即安装
+    （引擎 §9.2 要求失败时给 URL + 哈希指引，这条让指引可落地）；
+  - zip-slip 防护与「找不到目标 exe」显式报错。
+- **`scripts/fetch_tools.py`**：`--check` 只体检、`--only` 指定工具、`--update-lock` 回填 exe 哈希。
+- **`tools/tools.lock.json` 填充真实条目**（哈希由我们下载后自算，未采用任何上游校验值）：
+
+| 工具 | 版本 | 下载包 sha256 | exe sha256 | 许可 |
+| --- | --- | --- | --- | --- |
+| aria2c | 1.37.0 | `67d015301eef…` | `be2099c214f6…` | GPL-2.0 |
+| wimlib-imagex | 1.14.4 | `6d99e242bfbc…` | `401bf99d6dec…` | LGPL-3.0-or-later |
+
+- `ToolProvider.ensure()` 接入 fetcher：缺失时先尝试自动补齐，再定位；仍失败才抛 `TOOL_MISSING`。
+
+### 决策
+| # | 决策 | 理由 |
+| --- | --- | --- |
+| D1 | 只有 aria2c / wimlib 进清单 | 只有它们官方提供 zip；7z 走内置、DISM 系统自带、oscdimg 属 ADK、转换器随包 |
+| D2 | 清单**同时**记 `sha256`（下载包）与 `exeSha256`（可执行文件） | 两者混用会把刚装好的工具判成被篡改（本轮实测踩到） |
+| D3 | 手工放置压缩包即视作合法来源 | 哈希仍是唯一信任根，文件从哪来不影响判定 |
+| D4 | 工具二进制**不入库**（`.gitignore`），清单入库 | 体积与许可；分发包由 WP11-T2 统一携带 |
+
+### 真实联调发现（本轮首次跑真工具）
+1. **aria2c 的版本号是输出的第一行**，而 `ProcessResult.last_lines` 只留最后 20 行 → 被截掉。
+   修法：探测时用 `on_event` 另外收集**前 5 行**，与前缀一起匹配。
+2. **非管理员下 `dism /Version` 直接返回 740**（需要提升权限），不是「版本解析失败」。
+   修法：识别 `740` → 记 `capability_degraded capability=admin` + `WARN tool_admin_required`，
+   对应进程 §2.4「非管理员明确拒绝，而不是跑到一半才失败」。
+3. **httpx 经 HTTP 代理访问 GitHub release 资产不稳定**（`RemoteProtocolError` / `ProxyError 502` /
+   `ReadTimeout`，同一 URL 用 curl 正常）→ 加缓冲回退 + 换新连接 + 手工放置通道三重兜底。
+   属环境问题，已在「已知限制」记录。
+
+### 测试
+- `test_tools_fetcher.py`（12）：域名白名单三种非法 URL、哈希不符不落位、zip-slip 拒绝、
+  嵌套目录找 exe、DLL 一起落位、手工放置跳过下载、过期中转包被丢弃。
+- `test_tools_lock.py`（+2）、`test_tools_provider.py`（+2）：zip/exe 哈希分离、exe 哈希不符即拒、
+  `ensure` 走 fetcher 补齐。
+- 全量：`pytest 350 passed`；`mypy`/`ruff`/`format` 全绿。
+
+### 变更（文档）
+- `引擎` v0.4 → **v0.5**：§9.1 示例补 `exeSha256`，并写明「下载包哈希 ≠ exe 哈希」的原因。
+- `.gitignore`：忽略 `tools/.download/` 与各工具目录，`tools.lock.json` 仍入库。
+
+### 已知限制
+- **7z / oscdimg / 转换器未自动获取**：7z 随包内置（官方无 zip）、oscdimg 属 ADK（不自动获取）、
+  转换器随包且不参与对齐。它们的 `exeSha256` 只能在打包流程（WP11-T2）里回填。
+- **WP0-T8a（按清单对齐版本）未做**：现在只在「缺失」时补齐，不做「已存在但版本/哈希不符」的对齐。
+- 手工放置通道要求文件名严格为 `<工具名>-<版本>.zip`，且哈希必须在清单里（不认任意文件）。
+- 本轮联调环境为**非管理员**，DISM 的版本探测未能取到真版本号；管理员下的实际版本需在你的目标机实测。
+
 ## 0.1.14 — WP0-T7 工具提供与自检
 
 > 依据：引擎 §3.1、§3.2、§4、§5、§9.1；进程 §2.1–§2.4。

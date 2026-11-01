@@ -116,6 +116,21 @@ def test_entry_lookup_and_managed_names() -> None:
     assert lock.managed_names() == frozenset({"aria2c"})
 
 
+def test_archive_hash_and_executable_hash_are_separate() -> None:
+    """zip 哈希与 exe 哈希不能混用，否则刚装好的工具会被判成被篡改。"""
+    entry = LockedTool(name="aria2c", sha256="a" * 64, exeSha256="b" * 64, version="1.37.0")
+    lock = ToolLock(tools=[entry])
+
+    assert lock.entry_for("aria2c").sha256 == "a" * 64
+    assert lock.verify_hash("aria2c") == "b" * 64
+    assert lock.verify_hash("7z") is None
+
+
+def test_verify_hash_empty_when_not_registered() -> None:
+    lock = ToolLock(tools=[LockedTool(name="aria2c", sha256="a" * 64)])
+    assert lock.verify_hash("aria2c") is None
+
+
 def test_shipped_lock_is_valid() -> None:
     """随包清单必须能被解析、且身份自洽（空注册表也允许）。"""
     repo_lock = Path(__file__).resolve().parents[1] / "tools" / "tools.lock.json"

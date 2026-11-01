@@ -23,7 +23,7 @@ import sys
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from uup2iso.core.models.enums import EngineKind, ToolKind
 from uup2iso.core.models.tools import EngineCapabilities, ToolInfo, ToolSource
@@ -32,6 +32,9 @@ from uup2iso.infrastructure.process.errors import ToolMissingError
 from uup2iso.infrastructure.process.runner import ProcessRunner
 from uup2iso.infrastructure.tools.capabilities import capabilities_for, parse_version
 from uup2iso.infrastructure.tools.lock import LockedTool, ToolLock, load_lock
+
+if TYPE_CHECKING:  # 避免与 fetcher → provider 的导入形成环
+    from uup2iso.infrastructure.tools.fetcher import ToolFetcher
 
 __all__ = [
     "TOOL_EXECUTABLES",
@@ -77,10 +80,26 @@ _CONVERTER_VERSION_FILE = "version.txt"
 
 _SYSTEM32 = Path(os.environ.get("SystemRoot", r"C://Windows")) / "System32"
 
+_ELEVATION_REQUIRED = 740
+"""Windows ERROR_ELEVATION_REQUIRED：DISM 在非管理员下直接失败（进程 §2.4）。"""
+
 _REQUIRED: frozenset[ToolKind] = frozenset(
     {ToolKind.ARIA2C, ToolKind.SEVEN_ZIP, ToolKind.WIMLIB, ToolKind.DISM}
 )
 """必需工具：缺失即阻断（FR10.3）。``oscdimg`` 可选，转换器随包。"""
+
+
+@dataclass(frozen=True, slots=True)
+class _ProbeResult:
+    """一次版本探测的原始结果。
+
+    需要 ``head``：aria2c 的版本号是**第一行**，而 ``ProcessResult.last_lines`` 只保留最后
+    20 行，光看尾部会把它截掉（实测踩到）。
+    """
+
+    version: str | None
+    returncode: int | None
+    head: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -216,6 +235,7 @@ class ToolProvider:
         expected_lock_identity: str | None = None,
         probe_timeout: float = 10.0,
         admin: bool | None = None,
+        fetcher: ToolFetcher | None = None,
     ) -> None:
         self._tools_dir = tools_dir
         self._settings = dict(settings or {})
@@ -236,6 +256,7 @@ class ToolProvider:
         self._problems: dict[ToolKind, str] = {}
         self._versions: dict[ToolKind, str | None] = {}
         self._admin = admin
+        self._fetcher = fetcher
         self._load_cache()
 
     # -- IToolProvider ----------------------------------------------------
@@ -263,6 +284,13 @@ class ToolProvider:
     async def ensure(self, kind: ToolKind) -> ToolInfo:
         """确保工具可用并补上版本；缺失即抛 ``TOOL_MISSING``（含手动指引）。"""
         info = self.locate(kind)
+        if info is None and self._fetcher is not None:
+            # WP0-T8：必需且清单登记的工具可以自动补齐；失败仍在下面抛错
+            await self._fetcher.fetch(kind)
+            self._located.pop(kind, None)
+            self._problems.pop(kind, None)
+            info = self.locate(kind)
+
         if info is None:
             problem = self._problems.get(kind)
             detail = describe_missing(kind)
@@ -275,7 +303,8 @@ class ToolProvider:
             )
 
         if kind not in self._versions:
-            self._versions[kind] = await self._probe_version(kind, info)
+            probe = await self._probe_version(kind, info)
+            self._versions[kind] = probe.version
             self._store_cache()
         return ToolInfo(
             kind=info.kind,
@@ -303,12 +332,23 @@ class ToolProvider:
                 )
                 continue
 
-            version = await self._probe_version(kind, info)
+            probe = await self._probe_version(kind, info)
+            version = probe.version
             self._versions[kind] = version
             managed = self._is_managed(kind)
             if not managed and kind in _REQUIRED:
                 warnings.append(f"tool_unmanaged tool={kind.value}")
-            if version is None and VERSION_ARGS.get(kind):
+            if probe.returncode == _ELEVATION_REQUIRED:
+                # 实测：非管理员运行 dism /Version 也会返回 740（进程 §2.4）
+                degradations.append(
+                    CapabilityDegraded(
+                        tool=kind,
+                        capability="admin",
+                        reason="需要管理员权限：请以管理员身份运行本程序（进程 §2.4）",
+                    )
+                )
+                warnings.append(f"tool_admin_required tool={kind.value} exit=740")
+            elif version is None and VERSION_ARGS.get(kind):
                 degradations.append(
                     CapabilityDegraded(
                         tool=kind,
@@ -416,7 +456,9 @@ class ToolProvider:
         """命中白名单后做哈希校验；清单未登记则放行但标记 unmanaged（D1 决策）。"""
         digest = _sha256(path)
         entry: LockedTool | None = self._lock.entry_for(kind.value)
-        if entry is not None and entry.sha256 and digest != entry.sha256:
+        # 注意：entry.sha256 是下载包哈希，不能拿来比 exe；只比 executable_sha256
+        expected = entry.executable_sha256 if entry else ""
+        if expected and digest != expected:
             return None, "hash_mismatch"
 
         return (
@@ -436,12 +478,23 @@ class ToolProvider:
 
     # -- 内部：版本探测 ---------------------------------------------------
 
-    async def _probe_version(self, kind: ToolKind, info: ToolInfo) -> str | None:
+    async def _probe_version(self, kind: ToolKind, info: ToolInfo) -> _ProbeResult:
         if kind is ToolKind.CONVERTER:
-            return info.version
+            return _ProbeResult(version=info.version, returncode=0)
         args = VERSION_ARGS.get(kind)
         if not args or not _VERSION_PATTERNS.get(kind):
-            return None
+            return _ProbeResult(version=None, returncode=None)
+
+        head: list[str] = []
+
+        def _collect(event: object) -> None:
+            text = getattr(event, "text", "")
+            kind_value = getattr(event, "kind", None)
+            # 只收非进度行，且最多 5 行（版本号通常在第一行）
+            if kind_value is not None and getattr(kind_value, "value", "") == "progress":
+                return
+            if len(head) < 5 and isinstance(text, str):
+                head.append(text)
 
         spec = RunSpec(
             tool=kind,
@@ -451,15 +504,19 @@ class ToolProvider:
         )
         try:
             result = await asyncio.wait_for(
-                self._runner.run(spec, check=False),
+                self._runner.run(spec, check=False, on_event=_collect),
                 timeout=self._probe_timeout,
             )
         except (TimeoutError, OSError):
-            return None
+            return _ProbeResult(version=None, returncode=None)
 
-        text = "\n".join(result.last_lines)
+        text = "\n".join([*head, *result.last_lines])
         match = _VERSION_PATTERNS[kind].search(text)
-        return match.group(1) if match else None
+        return _ProbeResult(
+            version=match.group(1) if match else None,
+            returncode=result.returncode,
+            head=tuple(head),
+        )
 
     # -- 内部：能力降级汇总 ------------------------------------------------
 

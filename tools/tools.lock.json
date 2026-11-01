@@ -1,7 +1,30 @@
 {
   "schemaVersion": "1.0",
-  "generatedAt": "2026-10-31T17:00:00+08:00",
-  "identitySha256": "d2900ed85f8f7313b8ad82e3bbdda1d13a514f62c4a63ffe0da57edb499d2b2b",
-  "tools": [],
-  "note": "锁定清单为空：真实 SHA256 必须由我们用干净环境下载后自算，不能编造。填充属 WP0-T8（缺失自动获取）与 WP11-T2（内置二进制与许可）；在此之前工具按 unmanaged 处理（可定位、不校验哈希），并在自检中记 WARN tool_unmanaged。"
+  "generatedAt": "2026-10-31T17:25:00+08:00",
+  "identitySha256": "95baca8fcdc6c241e8e6b027ff4fed2066a0f991ae73dd25dd80d2e969afaf2e",
+  "tools": [
+    {
+      "name": "aria2c",
+      "channel": "official",
+      "url": "https://github.com/aria2/aria2/releases/download/release-1.37.0/aria2-1.37.0-win-64bit-build1.zip",
+      "sha256": "67d015301eef0b612191212d564c5bb0a14b5b9c4796b76454276a4d28d9b288",
+      "exeSha256": "be2099c214f63a3cb4954b09a0becd6e2e34660b886d4c898d260febfe9d70c2",
+      "version": "1.37.0",
+      "license": "GPL-2.0",
+      "required": true,
+      "managed": true
+    },
+    {
+      "name": "wimlib-imagex",
+      "channel": "official",
+      "url": "https://wimlib.net/downloads/wimlib-1.14.4-windows-x86_64-bin.zip",
+      "sha256": "6d99e242bfbc6d36fc987d433d63772180551b7f2d8de43e9561535a3e2c16d8",
+      "exeSha256": "401bf99d6dec2b749b464183f71d146327ae0856a968c309955f71a0c398a348",
+      "version": "1.14.4",
+      "license": "LGPL-3.0-or-later",
+      "required": true,
+      "managed": true
+    }
+  ],
+  "note": "只登记可自动获取且官方提供 zip 的必需工具（aria2c、wimlib-imagex）。哈希由我们在干净环境下载后自算，未采用任何上游公布的校验值。7z 官方只发 .exe/.msi/.7z，解 .7z 需 7z 自身（引导悖论），故走随包内置、不自动获取；DISM 为系统内置；oscdimg 属 ADK（不自动获取）；转换器随包分发且不参与对齐。内置工具的哈希在打包流程（WP11-T2）中补齐。"
 }

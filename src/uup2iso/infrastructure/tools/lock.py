@@ -42,6 +42,14 @@ class LockedTool(BaseModel):
     channel: str = "official"
     url: str = ""
     sha256: str = ""
+    """**下载物**（zip）的哈希，用于下载后校验（引擎 §9.1）。"""
+
+    executable_sha256: str = Field(default="", alias="exeSha256")
+    """落位后**可执行文件**的哈希，用于运行期完整性校验（进程 §2.1）。
+
+    两者必须分开：zip 的哈希拿去和 exe 比永远不等，会把刚装好的工具判成被篡改。
+    """
+
     version: str = ""
     license: str = ""
     required: bool = True
@@ -62,6 +70,11 @@ class ToolLock(BaseModel):
     def entry_for(self, name: str) -> LockedTool | None:
         """按工具短名查条目；未登记返回 ``None``（表示「不管理该工具」）。"""
         return next((item for item in self.tools if item.name == name), None)
+
+    def verify_hash(self, name: str) -> str | None:
+        """该工具应校验的**可执行文件**哈希；未登记返回 ``None``（不校验）。"""
+        entry = self.entry_for(name)
+        return entry.executable_sha256 if entry and entry.executable_sha256 else None
 
     def managed_names(self) -> frozenset[str]:
         return frozenset(item.name for item in self.tools if item.managed)

@@ -127,7 +127,9 @@ def test_locate_missing_returns_none(tmp_path: Path) -> None:
 
 def test_hash_mismatch_rejects_tool(tmp_path: Path) -> None:
     """清单登记了哈希就只认这个哈希；不符即拒绝使用（引擎 §9.1）。"""
-    lock = ToolLock(tools=[LockedTool(name="aria2c", sha256="0" * 64, version="1.37.0")])
+    lock = ToolLock(
+        tools=[LockedTool(name="aria2c", sha256="0" * 64, exeSha256="1" * 64, version="1.37.0")]
+    )
     provider = build_provider(tmp_path, lock=lock)
 
     assert provider.locate(ToolKind.ARIA2C) is None
@@ -136,6 +138,30 @@ def test_hash_mismatch_rejects_tool(tmp_path: Path) -> None:
     assert check is not None
     assert check.problem == "hash_mismatch"
     assert report.blocked is True
+
+
+def test_ensure_uses_fetcher_when_missing(tmp_path: Path) -> None:
+    """缺失时若注入了 fetcher，应尝试自动补齐再定位。"""
+
+    class _Fetcher:
+        def __init__(self, tools_dir: Path) -> None:
+            self.tools_dir = tools_dir
+            self.calls: list[ToolKind] = []
+
+        async def fetch(self, kind: ToolKind) -> object:
+            self.calls.append(kind)
+            target = self.tools_dir / kind.value
+            target.mkdir(parents=True, exist_ok=True)
+            (target / "aria2c.exe").write_text("stub", encoding="utf-8")
+            return object()
+
+    provider = build_provider(tmp_path, files={})
+    fetcher = _Fetcher(tmp_path / "tools")
+    provider._fetcher = fetcher  # 直接注入，避免构造参数顺序耦合
+
+    info = run(provider.ensure(ToolKind.ARIA2C))
+    assert fetcher.calls == [ToolKind.ARIA2C]
+    assert info.path.name == "aria2c.exe"
 
 
 def test_converter_is_a_directory_with_version_file(tmp_path: Path) -> None:

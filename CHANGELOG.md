@@ -1,5 +1,53 @@
 # CHANGELOG
 
+## 0.1.17 — WP0-T10 日志与进度上报模型
+
+> 依据：日志 §2、§3、§4、§5、§7.3；进程 §5、§6、§10。
+> 验收：符合日志 §2–§6；进度不入日志；审计退出后只读、启动只补最近 3 个；索引可支撑诊断包精确取文件。
+
+### 新增（`src/uup2iso/infrastructure/logging/`）
+- **`format.py`**：行格式 `<ts> [<LEVEL>] [<stage>] <logger>: <msg> | k=v`；级别 5 字符宽；
+  无阶段写 `[-]`；消息强制单行（异常续行靠 `  | ` 缩进，故 `single_line` 保留两空格前缀）。
+- **`sink.py`**：`LogSink` —— 每进程一 `run_*.log` + 一 `audit_*.log`（同时间戳，同秒冲突加 `_1` 且两侧同步）；
+  级别过滤（WARN/ERROR 恒写）；审计写失败抛 `AuditWriteError`；关闭时审计置只读；
+  `tool_started/tool_finished` 产出 `event=start|finish`；**采样兜底**（同前缀 >50 行时留「首 1 + 每 100 行 1 条 + 末 1」，末行带 `sampled=true total=<n>`）。
+- **`levels.py`**：exe→INFO / 源码 GUI→DEBUG / CLI→INFO / `--debug`→DEBUG，并回报级别来源。
+- **`cleanup.py`**：三条件清理（大小/天数/数量，任一超限即删最旧），运行池含 `diag_*.zip`、审计池独立；
+  当前文件永不删；审计删除前解除只读并回报 `audit_deleted`；`ensure_audit_readonly` **只处理最近 3 个**。
+- **`index.py`**：`TaskLogIndex`（写 `tasks\<id>.json` 的 `logFiles`/`auditFiles`，去重保序、保留其它字段）+
+  `collect_task_log`（只按索引取文件、逐行过滤 `task=<id>`、记 `matched_lines`+SHA256、合并行数必须等于来源之和）。
+- **`redact.py`**：代理凭据、URL 内嵌口令（含含 `@` 的密码）、产品密钥（留末 5 位）、URL 签名参数；幂等。
+- **`src/uup2iso/infrastructure/progress/hub.py`**：`ProgressHub` —— 单调不减（丢弃回退）+ 节流（200ms/键 ≈ 5 次/秒）+
+  订阅/快照；`attach_log()` 故意抛错，谁想把进度接日志会被当场拦住。
+
+### 决策
+| # | 决策 | 理由 |
+| --- | --- | --- |
+| D1 | 采样按「同前缀 + 抹掉数字」分组 | 工具刷屏行只有数字不同；按原文分组等于不分组 |
+| D2 | 只读用文件属性（`chmod` 去写位）实现 | 与 `attrib +R` 等价、可测；文档已声明「防误改而非安全边界」 |
+| D3 | 审计写失败抛 `AuditWriteError`（退出码 4） | 日志 §5.3「不得静默放行」，由调用方阻断高风险操作 |
+| D4 | 索引写在任务文件内而非单独文件 | 与 `tasks\<id>.json` 同生命周期，少一个可能丢的文件 |
+| D5 | 进度独立成 hub，不接日志 | 规则相反（日志求少、进度求频），物理隔开最省心 |
+
+### 测试
+- `test_logging_format.py`（19）：行结构/级别宽度/单行压平/字段跳过 None/脱敏四类/级别判定矩阵。
+- `test_logging_sink.py`（15）：同秒冲突成对、级别过滤、**进度不落盘**、审计分流与只读、采样封顶、异常续行、脱敏落盘前生效。
+- `test_logging_cleanup.py`（16）：只读往返、只补最近 3 个、按数量/天数/大小清理、诊断包同池、当前文件保护、审计解除只读后删除、阈值下限。
+- `test_logging_index.py`（11）：去重保序、保留其它字段、过滤不多不漏、缺失标 `exact=false`、索引缺失回退。
+- `test_progress_hub.py`（8）：单调、节流、未定态、订阅/取消、快照、reset、禁止接日志。
+- 全量：`pytest 467 passed`；`mypy 86 files`；`ruff`/`format` 全绿。
+
+### 变更（文档）
+- `日志` v0.5 → **v0.6**：§9 前补「落地状态」，明确已实现范围与未接线项；`术语表 §1.2` 同步。
+
+### 已知限制
+- **尚未接线**：`LogSink` 还没有注入 `ProcessRunner` / CLI / GUI（属 WP1-T2、WP1-T6、WP9-T17）。
+  现在它能用，但没有任何主流程在调它。
+- **诊断包未实现**：`collect_task_log` 已提供"按任务合并"的原料，zip 打包与 `manifest.json` 属 WP9-T19。
+- **单实例未实现**：日志 §2.2 要求"单实例校验通过后才建日志"，这个顺序要等 WP0-T11 才能落。
+- **只读不是安全边界**：管理员仍可改回；更强不可篡改（ACL/只读归档）是日志 §10 的开放问题。
+- 审计只读失败（如文件被占用）目前静默忽略（`set_readonly` 吞 OSError），诊断包生成前需要复核属性时再收紧。
+
 ## 0.1.16 — WP0-T9 规则库 Schema 与加载器
 
 > 依据：规则 §2、§4、§8。验收：非法规则被拒绝并报错；支持外置更新。

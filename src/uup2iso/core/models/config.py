@@ -87,6 +87,9 @@ _STAGE_ORDER = (
 )
 """8 阶段固定顺序（编排 §2），用于「起始阶段不能早于输入支持的最早阶段」。"""
 
+_SELECTABLE_STAGES: tuple[str, ...] = tuple(stage for stage in _STAGE_ORDER if stage != "Fetch")
+"""可选起始阶段（配置 §3.2 的枚举，**不含 Fetch**——它是内部下载阶段）。"""
+
 _EARLIEST_STAGE_BY_MODE = {
     # 入口 A：Fetch 不是可选起始阶段（配置 §3.2 的枚举不含它），用户可选的最早业务阶段是 Convert
     EntryPoint.ONLINE: "Convert",
@@ -518,12 +521,12 @@ class TaskConfig(_Section):
         issues: list[ConfigIssue] = []
         mode = self.input.mode
 
-        if self.input.start_stage not in _STAGE_ORDER:
+        if self.input.start_stage not in _SELECTABLE_STAGES:
             issues.append(
                 ConfigIssue(
                     "input.startStage",
                     SEMANTIC_INVALID,
-                    f"未知起始阶段：{self.input.start_stage}",
+                    f"未知起始阶段：{self.input.start_stage}（可选：{'/'.join(_SELECTABLE_STAGES)}）",
                 )
             )
         else:

@@ -1,5 +1,48 @@
 # CHANGELOG
 
+## 0.1.19 — WP1-T1 阶段模型与 StagePlanner（M1 起点）
+
+> 依据：编排 §2、§2.1、§3；架构 §10；流程图 §2.1；输入 §6。
+> 验收：阶段名为 8 个固定值；三入口映射正确；跳过阶段记原因。
+
+### 新增
+- **`core/models/pipeline.py`**：`StageKind`（8 个固定值 + `PIPELINE_ORDER`）、
+  `STAGE_SUBSTEPS`（每阶段子步骤 + **幂等性/残留清理标注**：`mount`/`unmount`/`inject` 非幂等）、
+  `PlannedSubstep` / `StagePlan` / `PipelinePlan`（含 `summary_lines()` 供 `--dry-run` 打印）。
+- **`application/pipeline/planner.py`**：`plan_pipeline(config)` —— 把 `TaskConfig` 裁剪成确定计划：
+  - `Prepare` **永不整段跳过**，起点晚于它时标 `implied`；子步骤按入口裁剪
+    （A 只 `probe`；B `probe+selfcheck`；C-ISO `probe+extract+selfcheck`；C-ESD 换 `materialize`；C-WIM 只 `probe+selfcheck`）；
+  - 入口 C 的 `Fetch`/`Convert` 记 `reason=input_satisfied`；
+  - 未选精简/优化/集成 → `reason=no_options`；未启用无人值守 → `reason=not_enabled`；`dryRun` → `reason=dry_run`；
+  - 起始阶段晚于 `Convert` 时，入口 A/B 的 `Fetch`+`Convert` 记 `reason=user_start_stage`；
+  - 早于输入支持的最早阶段 → `STAGE_TOO_EARLY`（退出码 4）。
+
+### 决策 / 规范澄清
+| # | 项 | 结论 |
+| --- | --- | --- |
+| D1 | 规范冲突：编排 §2 的跳过条件不含 `startStage`，配置 §3.2 的举例含 | 取可产品化的折中并在 `配置 §3.2` 登记：**只有 `startStage` 晚于 `Convert` 才跳过 `Fetch`+`Convert`**；`startStage=Convert` 时 `Fetch` 仍执行，否则入口 A 没有素材可用 |
+| D2 | `Fetch` 是否可作为起点 | **不可以**：配置 §3.2 的枚举只有 7 个值；V2 从「允许」收紧为「拒绝」，并给出可选清单 |
+| D3 | 跳过原因取值 | 沿用文档的 `no_options`/`input_satisfied`/`not_enabled`/`dry_run`/`user_start_stage`，另加 `merged_into_fetch_verify`（入口 A 的 `selfcheck` 并入 `Fetch.verify`） |
+| D4 | 计划是否做运行期判定 | 不做：`uup\` 已全部 verified 导致的跳过、清单有效性等由编排层（WP1-T2）决定，计划期不猜 |
+
+### 测试
+- `test_pipeline_planner.py`（26）：8 阶段唯一与固定顺序、历史名降级为子步骤、三入口的 `Prepare` 子步骤裁剪、
+  C 的 `input_satisfied`、A/B 起始阶段语义、`Prepare` 永不跳过、`STAGE_TOO_EARLY`、未知阶段名、
+  选项阶段开关、`dryRun` 跳过 `Output`、挂载类非幂等标注、`aggregate`/`commit` 幂等、跳过阶段子步骤全带原因、
+  摘要可读、计划确定性、压缩选项不影响裁剪。
+- `test_config_validation.py`（+1）：`startStage=Fetch` 被 V2 拒绝。
+- 全量：`pytest 525 passed`（新增 27 项）；`mypy 91 files`；`ruff`/`format` 全绿。
+
+### 变更（文档）
+- `配置` v0.3 → **v0.4**：§3.2 补「落地澄清」（`startStage` 与 `Fetch` 的真实关系、`Fetch` 不可作起点）。
+- `术语表 §1.2` 同步；README 的 M1 描述更新为「WS0 底座已就绪」。
+
+### 已知限制
+- 计划只覆盖「该不该跑、跑哪些子步骤」，**不产出命令行与将复用产物**——那是 WP1-T2 的 `--dry-run` 输出。
+- 阶段进度权重（`stage_percent = base + weight × tool_percent`）未定义：属 GUI/编排（WP9-T13 / WP1-T2）共同决策。
+- 入口 A 的 `Prepare` 只有 `probe`：与 `Fetch.verify` 的合并顺序在 T2 落实前不保证。
+- `plan_pipeline` 不读磁盘，因此无法判断「`uup\` 是否已下载完」这类运行期事实。
+
 ## 0.1.18 — WP0-T11 单实例守卫（WS0 收尾）
 
 > 依据：日志 §6.1、§6.2；流程图 §19；需求 FR9.4。

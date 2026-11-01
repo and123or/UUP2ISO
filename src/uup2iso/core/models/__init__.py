@@ -43,6 +43,15 @@ from uup2iso.core.models.enums import (
 )
 from uup2iso.core.models.image import UNKNOWN_EDITION, Edition, ImageInfo
 from uup2iso.core.models.manifest import SCHEMA_VERSION, Manifest, ManifestSource, UupFile
+from uup2iso.core.models.pipeline import (
+    PIPELINE_ORDER,
+    STAGE_SUBSTEPS,
+    PipelinePlan,
+    PlannedSubstep,
+    StageKind,
+    StagePlan,
+    SubstepSpec,
+)
 from uup2iso.core.models.preset import PresetDocument, PresetIssue, PresetRuleItems
 from uup2iso.core.models.rulepack import Rule, RuleLibrary, RulePack, RulePackIssue
 from uup2iso.core.models.rules import RuleOutcome, RuleReport
@@ -59,6 +68,13 @@ __all__ = [
     "InputSection",
     "MetaSection",
     "OutputSection",
+    "PIPELINE_ORDER",
+    "PipelinePlan",
+    "PlannedSubstep",
+    "STAGE_SUBSTEPS",
+    "StageKind",
+    "StagePlan",
+    "SubstepSpec",
     "PresetDocument",
     "PresetIssue",
     "PresetRuleItems",

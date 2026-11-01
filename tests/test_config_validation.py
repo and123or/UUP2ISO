@@ -185,6 +185,14 @@ def test_v2_edition_index_must_exist_in_probe(tmp_path: Path) -> None:
     assert "7" in caught.value.message
 
 
+def test_v2_fetch_is_not_a_selectable_start_stage(tmp_path: Path) -> None:
+    """配置 §3.2 的枚举只有 7 个值，`Fetch` 是内部阶段，不能作为起点。"""
+    path = write(tmp_path, payload(input={"mode": "online", "startStage": "Fetch"}))
+    with pytest.raises(ConfigError) as caught:
+        load_task_config(path)
+    assert "Fetch" in caught.value.message
+
+
 def test_v2_start_stage_too_early(tmp_path: Path) -> None:
     """输入 §6：UUP 文件夹最早从 Convert 开始，选 Prepare 应被拒。"""
     path = write(

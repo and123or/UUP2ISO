@@ -1,3 +1,5 @@
+.venv\Scripts\python -m pip install -e . --no-deps -q
+
 CLI方式运行
 .venv\Scripts\uup2iso.exe
 

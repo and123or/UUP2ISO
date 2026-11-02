@@ -1,5 +1,55 @@
 # CHANGELOG
 
+## 0.1.27 — WP2-T6/T7 aria2c 下载与校验（含 T3 决策修正）
+
+> 依据：下载 §4.1、§4.2、§5、§5.2、§5.4。
+> 验收：只经 `ProcessRunner` 调 aria2c；校验顺序「存在 → 大小 → SHA1」；哈希不符重下 ≤2 次；
+> **已用真实构建下载并校验通过**。
+
+### 新增（`infrastructure/download/aria2.py`）
+- `Aria2Options` —— §4.2 参数契约：`--continue`、`--max-concurrent-downloads=1`、`--split`（1–16 夹取）、
+  `--min-split-size=20M`、`--max-tries=3`、`--retry-wait=2`、`--max-file-not-found=1`、
+  `--summary-interval=1`、`--console-log-level=warn`、`--check-certificate=true`；代理/限速可选（空则不带参数）。
+- `build_input_file()` —— §4.1 输入列表（`url` / `  dir=` / `  out=`），**全部绝对路径**。
+- `verify_file()` / `sha1_of()` —— §5.1 顺序校验；SHA1 按 1 MB 流式计算。
+- `Aria2Downloader.download()` —— 校验 → 坏文件删掉（含 `.aria2`）→ 退避 2 s 重下，最多 2 轮；
+  成功写 `download\download.state.json`；仍失败抛 `DOWNLOAD_CORRUPT` 并列出「名称/期望/实际」。
+- `scripts/smoke_download.py` —— 小范围真实下载联调（默认只下最小的 2 个文件）。
+
+### 真实下载结果（2026-11-02，26100.9725 zh-cn professional）
+```
+[OK] 选中 2 个文件 / 47.4KB → 2/2 通过校验，0.1s
+[OK] 选中 2 个文件 / 14.2MB → 2/2 通过校验，0.5s
+     [OK] AggregatedMetadata.cab        3.0MB  verified
+     [OK] DesktopDeployment.cab        11.2MB  verified
+```
+
+### 三个实测结论（两个纠正了上一轮的判断）
+| # | 现象 | 处理 |
+| --- | --- | --- |
+| 1 | **`https` 下载必然失败**：TLS 证书与主机名不匹配（`目标主要名称不正确`），返回 22 | **推翻 0.1.26 的「http→https 升级」**：清单**保留源给的 scheme**，记 `url_kept_http`；校验放行白名单域名的 http，非白名单仍拒绝 |
+| 2 | `aria2c --out` 只是**文件名**，不是路径 | 路径走 `--dir`；输入列表里 `dir=`/`--input-file` 必须**绝对路径**，否则 cwd 基准错位（`Failed to open ... input.txt`） |
+| 3 | 下载 URL 寿命极短（~12 分钟） | 清单→下载必须**连续完成**；过期后需重新拉清单（T5 缓存要加「按 expire 提前失效」） |
+
+### 测试
+- `test_download_aria2.py`（15）：输入列表绝对路径、参数契约（含 split 夹取、代理/限速可选）、
+  校验三分支（缺失/大小不符不算哈希/哈希不符）、成功写状态、坏文件重下 1 轮成功、
+  3 次机会耗尽抛 `DOWNLOAD_CORRUPT` 并列名、`names` 过滤、未知名称报 `MANIFEST_INVALID`、进度只进通道。
+- `test_manifest_service.py` 调整（21）：改为「保留 scheme + 白名单 http 放行 + 非白名单/非法协议拒绝」。
+- 全量：`pytest 726 passed`（新增 15 项）；`mypy 110 files`；`ruff`/`format` 全绿。
+
+### 变更（文档）
+- `下载` v0.4 → **v0.5**：§3.2 的「升级 https」**更正**为「保留原 scheme + 白名单 http 放行」；
+  §5 后补 T6/T7 落地状态与 aria2c 的两个实测坑；`术语表 §1.2` 同步。
+- `core/errors`：登记 `DOWNLOAD_CORRUPT`（下载 §5.2 原有码，此前未落地）。
+
+### 已知限制
+- **还没接进编排**：`Fetch` 阶段处理器未写，`uup2iso run` 仍走不到下载（下一步）。
+- **缓存未做**（T5）：清单 URL 只有 ~12 分钟寿命，缓存必须按 `expire` 提前失效。
+- **多文件并发固定 1**（按规范）；单文件 8 连接；`--max-overall-download-limit` 已支持但 CLI 未暴露。
+- **不做 `--file-allocation` 调优**（规范要求保持默认）；OneDrive 等同步目录下大文件预分配可能变慢。
+- **HTTP 401/403（URL 过期）目前表现为「文件缺失 → 重下 → 仍失败」**，未针对性提示「请重新拉清单」。
+
 ## 0.1.26 — WP2-T3 下载清单生成与五项自校验
 
 > 依据：下载 §3.1、§3.2、§3.3。

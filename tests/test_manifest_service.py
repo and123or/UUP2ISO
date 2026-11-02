@@ -70,7 +70,7 @@ def make_manifest(**overrides: object) -> Manifest:
 # --- 生成 -------------------------------------------------------------------
 
 
-def test_build_from_real_payload_upgrades_to_https() -> None:
+def test_build_keeps_original_http_scheme() -> None:
     payload = SourcePayload(
         build="26100.9725",
         files=(
@@ -84,8 +84,9 @@ def test_build_from_real_payload_upgrades_to_https() -> None:
 
     manifest, warnings = build_manifest(payload, make_request())
 
-    assert all(item.url.startswith("https://") for item in manifest.files)
-    assert any("url_upgraded_to_https count=2" in item for item in warnings)
+    # 实测：该 CDN 只认 http，强升 https 会 TLS 失败 → 保留原 scheme 并告警
+    assert all(item.url.startswith("http://") for item in manifest.files)
+    assert any("url_kept_http count=2" in item for item in warnings)
     assert manifest.total_bytes == 2830538 + 6798426
     assert manifest.build == "26100.9725"
     assert manifest.revision == "9725"
@@ -100,12 +101,12 @@ def test_build_flags_config_mismatch() -> None:
     assert any("manifest_mismatch" in item for item in warnings)
 
 
-def test_https_urls_are_not_flagged() -> None:
+def test_https_urls_are_not_flagged_as_http() -> None:
     payload = SourcePayload(build="26100.9725", files=(make_file(),))
 
     _manifest, warnings = build_manifest(payload, make_request())
 
-    assert not any("url_upgraded_to_https" in item for item in warnings)
+    assert not any("url_kept_http" in item for item in warnings)
 
 
 # --- 五项自校验 -------------------------------------------------------------
@@ -150,12 +151,24 @@ def test_bad_sha1_rejected() -> None:
     assert "SHA1 非法" in caught.value.message
 
 
-def test_http_url_rejected_by_validation() -> None:
-    """校验层坚持 https：升级发生在生成阶段，漏网的 http 必须拦住。"""
+def test_http_url_allowed_for_whitelisted_host() -> None:
+    """白名单域名的 http 放行（微软 CDN 实测只认 http）。"""
     manifest = make_manifest(files=(make_file(url=URL),))
+    validate_manifest(manifest, request=make_request())
+
+
+def test_http_url_rejected_for_untrusted_host() -> None:
+    manifest = make_manifest(files=(make_file(url="http://evil.example.com/a.cab"),))
     with pytest.raises(ManifestError) as caught:
-        validate_manifest(manifest)
-    assert "不是 https" in caught.value.message
+        validate_manifest(manifest, request=make_request())
+    assert "白名单" in caught.value.message
+
+
+def test_bad_scheme_rejected() -> None:
+    manifest = make_manifest(files=(make_file(url="ftp://tlu.dl.delivery.mp.microsoft.com/a.cab"),))
+    with pytest.raises(ManifestError) as caught:
+        validate_manifest(manifest, request=make_request())
+    assert "协议非法" in caught.value.message
 
 
 def test_untrusted_host_rejected() -> None:

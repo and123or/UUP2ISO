@@ -12,8 +12,10 @@
    （官方域名 ∪ 当前数据源 host——否则用户配的镜像会被自己的校验判死）；
 5. 必需文件 ≥ 1 个。
 
-**实测决策**：uupdump 给的是 `http://…microsoft.com/…` 直链，规范要求 https →
-生成时**升级为 https 并记 `url_upgraded_to_https`**；若下载阶段 https 不通，回退策略属 T6/T7。
+**实测决策（0.1.26 修正）**：uupdump 给的是 `http://…microsoft.com/…` 直链，而该 CDN
+**只接受 http**（https 会 TLS 证书不匹配 / 返回 22）→ 因此**保留原始 scheme**，并记
+`url_kept_http count=<n>`；校验层放行白名单域名下的 http（非白名单仍拒绝）。
+强烈建议保留 https 优先：源给 https 就用 https，只在源本身给 http 时才用 http。
 """
 
 from __future__ import annotations
@@ -114,13 +116,13 @@ def build_manifest(
         ManifestError: 五项校验任一不过；失败前会把脱敏原始响应写入 ``debug_dir``。
     """
     warnings: list[str] = []
-    upgraded = 0
+    kept_http = 0
     files: list[UupFile] = []
 
     for item in payload.files:
-        url, changed = _ensure_https(item.url)
+        url, changed = _keep_scheme(item.url)
         if changed:
-            upgraded += 1
+            kept_http += 1
         files.append(
             UupFile(
                 name=item.name,
@@ -132,8 +134,8 @@ def build_manifest(
                 sha256=item.sha256,
             )
         )
-    if upgraded:
-        warnings.append(f"url_upgraded_to_https count={upgraded}")
+    if kept_http:
+        warnings.append(f"url_kept_http count={kept_http}")
 
     if payload.build and request.build and payload.build != request.build:
         warnings.append(f"manifest_mismatch config={request.build} source={payload.build}")
@@ -204,8 +206,8 @@ def validate_manifest(manifest: Manifest, *, request: ManifestRequest | None = N
         if not _SHA1.match(item.sha1):
             raise ManifestError(f"文件 {item.name} 的 SHA1 非法：{item.sha1!r}（下载 §3.2-4）")
         parsed = urlsplit(item.url)
-        if parsed.scheme != "https":
-            raise ManifestError(f"文件 {item.name} 的 URL 不是 https：{item.url}（下载 §3.2-4）")
+        if parsed.scheme not in ("https", "http"):
+            raise ManifestError(f"文件 {item.name} 的 URL 协议非法：{parsed.scheme}（下载 §3.2-4）")
         host = (parsed.hostname or "").lower()
         if not _host_allowed(host, extra_hosts):
             raise ManifestError(f"文件 {item.name} 的下载域名不在白名单：{host}（下载 §3.2-4）")
@@ -287,11 +289,14 @@ def redact_payload(payload: SourcePayload) -> dict[str, object]:
 # ---------------------------------------------------------------------------
 
 
-def _ensure_https(url: str) -> tuple[str, bool]:
+def _keep_scheme(url: str) -> tuple[str, bool]:
+    """保留源给的 scheme；返回 ``(url, 是否 http)``。
+
+    实测：微软 CDN 的签名只对 http 有效，强升 https 会 TLS 证书不匹配 →
+    这里不做升级，交给下载层用源给的原样地址。
+    """
     parsed = urlsplit(url)
-    if parsed.scheme == "https":
-        return url, False
-    return urlunsplit(parsed._replace(scheme="https")), True
+    return url, parsed.scheme == "http"
 
 
 def _host_allowed(host: str, extra_hosts: tuple[str, ...]) -> bool:

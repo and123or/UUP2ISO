@@ -37,6 +37,10 @@ class ErrorCode(StrEnum):
     BUILD_WITHDRAWN = "BUILD_WITHDRAWN"
     MANIFEST_INVALID = "MANIFEST_INVALID"
 
+    # --- 下载执行（下载 §5.2、§7） ---
+    DOWNLOAD_CORRUPT = "DOWNLOAD_CORRUPT"
+    """哈希/大小连续不符，重下 2 次仍失败（绝不放行损坏文件）。"""
+
     # --- 输入识别（输入 §3、§9） ---
     INPUT_AMBIGUOUS = "INPUT_AMBIGUOUS"
     INPUT_ENCRYPTED = "INPUT_ENCRYPTED"

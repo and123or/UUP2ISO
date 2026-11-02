@@ -15,7 +15,9 @@ from __future__ import annotations
 import argparse
 import sys
 from datetime import UTC, datetime
+from pathlib import Path
 
+from uup2iso.application.fetch import ManifestRequest, build_manifest, write_manifest
 from uup2iso.core.errors import Uup2IsoError
 from uup2iso.infrastructure.source import SITE_BASE_DEFAULT, UupDumpSource
 
@@ -27,6 +29,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--build", default="", help="直接指定构建 uuid（跳过搜索）")
     parser.add_argument("--lang", default="zh-cn")
     parser.add_argument("--edition", default="professional")
+    parser.add_argument("--manifest-dir", default="", help="同时生成 manifest.json 到该目录")
     args = parser.parse_args(argv)
 
     source = UupDumpSource(base_url=args.base)
@@ -70,6 +73,25 @@ def main(argv: list[str] | None = None) -> int:
             print(f"[WARN] 未识别字段：{payload.unknown_fields}")
         for warning in payload.warnings[:5]:
             print(f"[WARN] {warning}")
+        manifest, warnings = build_manifest(
+            payload,
+            ManifestRequest(
+                build=payload.build,
+                language=args.lang,
+                edition=args.edition,
+                base_url=args.base,
+                fetched_at=datetime.now(UTC),
+            ),
+        )
+        print(
+            f"[OK] 清单校验通过：{len(manifest.files)} 项 / "
+            f"{manifest.total_bytes / 1e9:.2f} GB（生成告警 {len(warnings)} 条见下）"
+        )
+        for warning in warnings:
+            print(f"[WARN] {warning}")
+        if args.manifest_dir:
+            path = write_manifest(Path(args.manifest_dir) / "manifest.json", manifest)
+            print(f"[OK] 已写出 {path}")
         if source.warnings:
             print(f"[INFO] 累计告警 {len(source.warnings)} 条（示例：{source.warnings[0]}）")
         return 0

@@ -1,5 +1,55 @@
 # CHANGELOG
 
+## 0.1.26 — WP2-T3 下载清单生成与五项自校验
+
+> 依据：下载 §3.1、§3.2、§3.3。
+> 验收：清单结构符合 §3.1；五项自校验逐条生效；**已用真实构建生成 97 项 / 9.09 GB 清单**。
+
+### 新增（`application/fetch/manifest_service.py`）
+- `build_manifest(payload, request, debug_dir=None)` → `(Manifest, warnings)`：
+  - `http → https` 升级（记 `url_upgraded_to_https count=<n>`）；
+  - 与配置选择不一致记 `manifest_mismatch`；
+  - 校验失败先落 `debug\source-response.json`（**脱敏**：去 URL query）再抛错。
+- `validate_manifest(manifest, request=...)` —— §3.2 五项逐条检查，报错信息带**具体文件与字段**：
+  非空/字段齐全、名称唯一、`totalBytes` 等于大小之和、`sha1` 40 位 hex、`url` 为 https 且在白名单、必需文件 ≥1。
+- `manifest_to_json()` / `write_manifest()`（原子写，`tmp → replace`）。
+- `redact_payload()` —— 原始响应脱敏视图（只留 host+path）。
+- 白名单：官方后缀（`uupdump.net` / `microsoft.com` / `windowsupdate.com`，含子域）
+  **∪ 当前数据源 host ∪ `extra_hosts`**——否则用户配的镜像会被自己的校验判死。
+
+### 真实联调（2026-11-02）
+```
+[OK] 清单校验通过：97 项 / 9.09 GB（生成告警 1 条）
+[WARN] url_upgraded_to_https count=97
+[OK] 已写出 manifest.json
+```
+落盘结构核对：`schemaVersion/parserVersion/source/build/revision/language/edition/totalBytes/files/unknownFields`
+齐全，`totalBytes=9093627232` 与 97 个文件大小之和一致，全部 URL 为 https。
+
+### 决策
+| # | 决策 | 理由 |
+| --- | --- | --- |
+| D1 | `http → https` 升级而不是拒绝 | 拒绝等于「uupdump 源不可用」；微软 CDN 通常两者都通 |
+| D2 | 白名单包含「当前数据源 host」 | 规范明文要求，否则自定义镜像必被自己的校验拦住 |
+| D3 | 校验失败**先落脱敏响应再抛错** | 事后排查需要原始形状，但不能把签名 query 写进磁盘 |
+| D4 | 升级/不一致等记**汇总类**告警（count=n） | 97 条逐文件告警会把日志刷满 |
+| D5 | 清单落盘用原子写 | 与检查点/配置同口径，避免半截 JSON |
+
+### 测试
+- `test_manifest_service.py`（19）：生成时 https 升级与计数、配置不一致告警、https 不误报、
+  五项自校验各一条负例（空清单/缺字段/重名/总字节不符/SHA1 非法/http URL/非白名单 host/无必需文件）、
+  镜像 host 与 extra_hosts 放行、官方后缀放行、JSON 形状、原子写、失败脱敏 dump、redact 去 query。
+- 全量：`pytest 708 passed`（新增 19 项）；`mypy 109 files`；`ruff`/`format` 全绿。
+
+### 变更（文档）
+- `下载` v0.3 → **v0.4**：§3.2 后补落地状态与「http→https 升级」的偏差登记；`术语表 §1.2` 同步。
+
+### 已知限制
+- **没有缓存**（T5）：每次生成都真实联网；10 分钟 TTL 与过期容错未做。
+- **不重取过期 URL**：清单里 `expire` 只剩 ~0.2 小时，下载前不校验就会拿到死链（属 T6/T7）。
+- **`required` 恒为 true**：站点没有「可选文件」概念，全部按必需处理；将来若区分需数据源支持。
+- **无清单读回**：只有写，没有 `load_manifest()`；续跑复用清单属 T5/T6。
+
 ## 0.1.25 — WP2-T1 数据源抽象与 uupdump 实现
 
 > 依据：下载 §2.1、§2.2、§2.4。

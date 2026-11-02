@@ -171,6 +171,9 @@ class FetchStageHandler:
 
     def _refresh_manifest(self, ctx: StageContext, path: Path) -> Manifest:
         source = self._source
+        binder = getattr(source, "bind", None)
+        if callable(binder):
+            binder(log=ctx.log)
         if source is None:
             raise StageExecutionError(
                 "Fetch 缺少数据源实现（UupSource）", code=ErrorCode.INTERNAL_ERROR
@@ -195,6 +198,7 @@ class FetchStageHandler:
                 base_url=selection.base_url,
                 fetched_at=payload.expires_at or _now(),  # 仅作记录
                 revision=build.revision,
+                from_cache=payload.from_cache,
             ),
             debug_dir=ctx.work_dir / "debug",
         )

@@ -12,10 +12,24 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from enum import StrEnum
 
 from uup2iso.core.models.manifest import UupFile
 
-__all__ = ["EditionInfo", "SourcePayload"]
+__all__ = ["CacheState", "EditionInfo", "SourcePayload"]
+
+
+class CacheState(StrEnum):
+    """一次缓存查询的结果（下载 §2.3）。"""
+
+    MISS = "miss"
+    """没有缓存。"""
+
+    FRESH = "fresh"
+    """命中且仍在有效期内。"""
+
+    STALE = "stale"
+    """命中但已过期（仅在刷新失败时降级使用）。"""
 
 
 @dataclass(frozen=True, slots=True)
@@ -56,6 +70,11 @@ class SourcePayload:
     api_version: str = ""
     unknown_fields: tuple[str, ...] = field(default_factory=tuple)
     warnings: tuple[str, ...] = field(default_factory=tuple)
+    from_cache: bool = False
+    """是否来自磁盘缓存（含过期缓存）；清单里的 ``source.fromCache`` 用它。"""
+
+    cache_age_seconds: float | None = None
+    """缓存的年龄（秒）；未命中为 ``None``。"""
 
     @property
     def total_bytes(self) -> int:

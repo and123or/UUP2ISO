@@ -1,5 +1,50 @@
 # CHANGELOG
 
+## 0.1.29 — WP2-T5 清单缓存（10 分钟 TTL + 过期容错）
+
+> 依据：下载 §2.3。验收：TTL 生效、过期容错可用且可见、键唯一、作废可用。
+
+### 新增
+- **`infrastructure/source/cache.py`**：`SourceCache` —— 位置 `{程序目录}\cache\source\<host>\<name>-<key>.json`，
+  键为 `host + build + revision + language + edition` 的 SHA256 前缀；只存元数据、原子写、支持按 host/全部作废。
+- **`infrastructure/source/cached.py`**：`CachedSource` 装饰器 —— 包装任意 `UupSource`：
+  未命中→联网；新鲜→**不联网**；过期→刷新；**过期且刷新失败→降级使用 + `manifest_stale_used` 告警**。
+  构建列表一并缓存；语言/edition 列表**不缓存**（体积小且必须与当前构建一致）。
+- `core/models/source.py`：`CacheState`（miss/fresh/stale）+ `SourcePayload.from_cache` / `cache_age_seconds`。
+- 组合根（`cli_runner._make_fetch_handler`）自动包上缓存；`FetchStageHandler` 把 `from_cache` 透传进清单。
+- `.gitignore` 忽略 `cache/`（运行期缓存，不入库）。
+
+### 两处比规范更严（实测驱动，已回写 下载 §2.3）
+1. **按 URL 寿命提前失效**：清单 URL 实测只有 ~12 分钟寿命，剩余不足 **120 s** 即判过期强制刷新，
+   否则会命中「清单还在、URL 已死」的缓存，下载必然全失败；
+2. **降级必须可见**：返回过期缓存时附 `manifest_stale_used age_minutes=<n>` 与 `fromCache=true`，
+   不许静默。
+
+### 真实联调
+```
+第一次：Fetch 完成 2/97｜14.2MB｜2.4s（联网拉清单）
+第二次：Fetch 完成 2/97｜14.2MB｜0.9s（命中缓存，未请求 get.php）
+缓存文件：cache/source/uupdump.net/{buildlist,manifest}-<hash>.json
+```
+
+### 测试
+- `test_source_cache.py`（15）：空缓存 miss、TTL 内 fresh、超时 stale、**剩余寿命不足强制 stale**、
+  URL 已过期标记、键按 edition/语言区分、文件结构含 meta、损坏缓存按 miss（带告警）、
+  按 host/全部作废、装饰器命中不联网、过期刷新、**刷新失败降级 + 告警**、无缓存时失败要抛错、
+  构建列表缓存、语言/edition 不缓存。
+- 全量：`pytest 752 passed`；`mypy 113 files`；`ruff`/`format` 全绿。
+
+### 变更（文档）
+- `下载` v0.6 → **v0.7**：§2.3 后补落地状态与两处加严说明；`术语表 §1.2` 同步。
+
+### 已知限制
+- **全量 9 GB 下载仍未跑通**：即便命中缓存（不请求 `get.php`），97 个 URL 的首批仍被 CDN 集体 403；
+  同一批 URL 手工 aria2c 下载可成功 → 属按 IP 的瞬时限流。T5 只消除了「重复拉清单」这一半原因，
+  另一半（下载突发）需冷却重试或换网络环境验证。
+- 缓存**没有大小上限与清理策略**：条目按构建累积（每个约 20–40 KB），长期使用需加 LRU 或按天数清理。
+- `invalidate()` 已实现但**没有 UI/CLI 入口**（手动刷新入口属 WP9/设置页）。
+- 语言/edition 不缓存，因此每次仍会各自请求一次（这两步很轻，但严格说不是零请求）。
+
 ## 0.1.28 — WP2-T4 `Fetch` 阶段处理器（接线到编排）
 
 > 依据：编排 §3、下载 §4/§5、`下载 §6` 目录结构。

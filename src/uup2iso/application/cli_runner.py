@@ -91,10 +91,12 @@ def build_handlers(config: object | None = None) -> dict[StageKind, StageHandler
 
 def _make_fetch_handler(config: object) -> StageHandler:
     """入口 A 的 Fetch：数据源 + aria2c 下载器（组合根职责）。"""
+    from urllib.parse import urlsplit
+
     from uup2iso.application.pipeline.handlers import FetchStageHandler
     from uup2iso.infrastructure.download import Aria2Downloader
     from uup2iso.infrastructure.process.runner import ProcessRunner
-    from uup2iso.infrastructure.source import UupDumpSource
+    from uup2iso.infrastructure.source import CachedSource, SourceCache, UupDumpSource
     from uup2iso.infrastructure.tools.lock import load_lock
     from uup2iso.infrastructure.tools.provider import ToolProvider
 
@@ -114,9 +116,10 @@ def _make_fetch_handler(config: object) -> StageHandler:
         )
         return Aria2Downloader(provider=provider, runner=runner, work_dir=work_dir)
 
-    return FetchStageHandler(
-        source=UupDumpSource(base_url=base_url), downloader_factory=_downloader
-    )
+    cache = SourceCache(root / "cache" / "source")
+    host = urlsplit(base_url).hostname or "uupdump.net"
+    source = CachedSource(UupDumpSource(base_url=base_url), cache, host=host)
+    return FetchStageHandler(source=source, downloader_factory=_downloader)
 
 
 def execute_run(

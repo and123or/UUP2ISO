@@ -86,7 +86,21 @@ def build_handlers(config: object | None = None) -> dict[StageKind, StageHandler
         and getattr(getattr(config, "input", None), "mode", None) == EntryPoint.ONLINE
     ):
         handlers[StageKind.FETCH] = _make_fetch_handler(config)
+    if config is not None and getattr(getattr(config, "input", None), "mode", None) in (
+        EntryPoint.ONLINE,
+        EntryPoint.UUP_FOLDER,
+    ):
+        handlers[StageKind.CONVERT] = _make_convert_handler()
     return handlers
+
+
+def _make_convert_handler() -> StageHandler:
+    """Convert：编排转换器（不自建聚合），需要 tools 目录与进程执行器。"""
+    from uup2iso.application.pipeline.handlers import ConvertStageHandler
+    from uup2iso.infrastructure.process.runner import ProcessRunner
+
+    root = Path(__file__).resolve().parents[3]
+    return ConvertStageHandler(tools_dir=root / "tools", runner=ProcessRunner())
 
 
 def _make_fetch_handler(config: object) -> StageHandler:

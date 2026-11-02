@@ -117,7 +117,8 @@ def test_entry_b_runs_probe_and_selfcheck() -> None:
 
     assert prepare is not None
     assert [sub.name for sub in prepare.executed_substeps] == ["probe", "selfcheck"]
-    assert reasons(plan)["Fetch"] is None
+    # 入口 B 的素材已在本地：Fetch 属「根本没这回事」而非「用户从后面起步」
+    assert reasons(plan)["Fetch"] == SKIP_INPUT_SATISFIED
     assert reasons(plan)["Convert"] is None
 
 

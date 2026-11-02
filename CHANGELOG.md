@@ -1,5 +1,59 @@
 # CHANGELOG
 
+## 0.1.31 — WP3 前哨：`Convert` 阶段编排（仅预演）+ 入口 B 计划修正
+
+> 依据：`docs/规范/映像引擎与转换规范.md`（路线 A）、`docs/记录/转换路线验证.md`（实测结论）、
+> 用户放入 `tools\` 的 `uup-converter-wimlib`（`convert-UUP.cmd` + `ConvertConfig.ini` + 7z 包）。
+> 本轮**只做代码与预演，不实际执行转换**（实跑由用户手工进行）。
+
+### 新增
+- **`application/pipeline/handlers/convert.py`**：`ConvertStageHandler`
+  - 五个子步骤与编排一致：`config`（生成 `ConvertConfig.ini`）→ `cab`（`7zr x` 解包转换器）
+    → `aggregate`（调转换器脚本）→ `skeleton`/`bootwim`（产物验收）；
+  - **不自建组件聚合**：把 `install.wim` 交给已验证转换器（路线 A）；
+  - **输入目录以参数传入**（转换器支持第 1 个参数为 UUP 目录）→ **不复制 9.7 GB 数据**；
+  - `ConvertOptions`：`TaskConfig.convert` → ini 键的强类型映射（AutoStart/SkipISO/wim2esd/Cleanup/…），
+    ini 用 **UTF-8 BOM + CRLF** 原子写（转换器用 `findstr` 逐行读）；
+  - `describe()` 输出 5 条真实命令（解包 / 写 ini / 调转换器 / 校验产物 / 可选 cdimage），
+    `file_operations()` 列出将创建的 ini、`bin\`、`ISOFOLDER\`（`mode=full` 时加 ISO）。
+- 组合根 `cli_runner.build_handlers()`：入口 A/B 自动装配 `Convert`（注入 `tools` 目录与 `ProcessRunner`）。
+
+### 修正（本轮预演暴露的真 bug）
+- **`StagePlanner` 入口 B 误排 `Fetch`**：原实现把入口 A/B 归为一类，只有「起点晚于 Convert」才跳过 Fetch，
+  于是入口 B（素材已在本地）仍排上 `Fetch`，dry-run 显示「有活但没处理器」，实跑必然卡住。
+  现改为：**入口 B 的 `Fetch` 一律 `input_satisfied`**（与 FR0.3「入口 B 从 Convert 开始」一致），
+  入口 A 保持原语义（起点为 Convert 时仍要下载）。
+
+### 预演证据（真实数据 `UUPs26300.9818`）
+```
+[run ] Prepare  substeps=probe,selfcheck
+[skip] Fetch    reason=input_satisfied          ← 修正后
+[run ] Convert  substeps=config,cab,aggregate,skeleton,bootwim  commands=5
+  "tools\7zr.exe" x "tools\uup-converter-wimlib.7z" -o"work\<task>\convert" -y
+  # 写入 work\<task>\convert\ConvertConfig.ini（AutoStart=3 SkipISO=1 AddUpdates=1 Cleanup=1 wim2esd=0 SkipApps=0）
+  <shell> /c "convert-UUP.cmd" "…\UUPs26300.9818"   # cwd=work\<task>\convert
+  wimlib-imagex info "…\work\<task>\convert\ISOFOLDER\sources\install.wim"
+```
+
+### 测试
+- `test_convert_handler.py`（23）：选项映射（wim_only/full/LZMS/updates/cleanup/apps、缺省最保守）、
+  ini 段落与 CRLF/BOM、原子写、解包幂等与缺包报错、`describe` 五条命令与缺目录报错、
+  `file_operations` 两种模式、缺 runner/缺输入/入口 C 三种拒绝、可复用产物、
+  入口 B 跳过 Fetch / 保留 Convert / 入口 A 仍执行 Fetch。
+- 全量：`pytest 773 passed`；`mypy 114 files`；`ruff`/`format` 全绿。
+
+### 变更（文档）
+- `docs/计划/现状与下一阶段计划.md` v1.0 → **v1.1**：新增 §4.4（转换编排、转换器事实、预演输出、
+  默认值提醒）、P0-3/P1-1 状态更新、环境快照改为「转换器已就位」；`术语表 §1.2` 同步。
+
+### 已知限制
+- **未实跑**：`aggregate` 未真正调用转换器，`install.wim` 未产出；`skeleton`/`bootwim` 目前只做**产物验收**
+  （转换器内部完成这两步，我们没有独立命令）。
+- **转换器未入册** `tools.lock.json`（无版本/SHA256 记录），当前按 `tools\` 目录约定直接引用。
+- **产物路径为宽松探测**（`rglob("install.wim")`）：转换器若改变输出布局，验收会失败并提示看日志。
+- `ConvertSection()` 默认 `AddUpdates=1 Cleanup=1 SkipApps=0`，首轮实跑建议显式关闭（否则会集成 4.6 GB KB 与 2227 个 msix）。
+- 非管理员：转换器内部若调用 DISM 挂载会失败，实跑需 UAC 提权。
+
 ## 0.1.30 — 新增《现状与下一阶段计划》+ 版本号动态获取方案
 
 > 依据：用户提供的本地 26H2（26300.9818 zh-CN Professional）UUP 数据集；`docs/治理/版本与变更管理.md`。

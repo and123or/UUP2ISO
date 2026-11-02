@@ -109,15 +109,22 @@ def _skip_reason(stage: StageKind, config: TaskConfig, start_index: int) -> str 
     """判定跳过原因。
 
     顺序有讲究：**入口自身决定的跳过优先于「起始阶段」**。
-    入口 C 的 `Fetch`/`Convert` 是「根本没这回事」（`input_satisfied`），
-    而入口 A/B 才是「用户从更后面的阶段起步」（`user_start_stage`）。
+
+    * 入口 C（现成映像）：`Fetch`/`Convert` 是「根本没这回事」→ `input_satisfied`；
+    * 入口 B（本地 UUP 文件夹）：**素材已在本地，`Fetch` 永远不执行** → `input_satisfied`
+      （这是 2026-11-02 修正：此前把 A/B 归为一类，导致入口 B 仍排上 `Fetch`，
+      dry-run 里显示为「有活但没处理器」，实际跑必然卡住）；
+    * 入口 A（在线）：素材必须下载，只有用户显式从更后面起步才跳过。
     """
-    if stage in (StageKind.FETCH, StageKind.CONVERT):
-        # 入口 C：根本没有「下载/组件聚合」这回事
+    if stage is StageKind.FETCH:
+        if config.entry in (EntryPoint.IMAGE, EntryPoint.UUP_FOLDER):
+            return SKIP_INPUT_SATISFIED
+        return SKIP_USER_START_STAGE if start_index > _STAGE_INDEX[StageKind.CONVERT] else None
+
+    if stage is StageKind.CONVERT:
+        # 入口 C 不需要组件聚合；入口 B 的起点通常就是 Convert，必须执行
         if config.entry is EntryPoint.IMAGE:
             return SKIP_INPUT_SATISFIED
-        # 入口 A/B：只有用户显式声明「从 Convert 之后起步」才跳过数据前置；
-        # startStage=Convert 时 Fetch 仍需执行——否则入口 A 根本没有素材可用。
         return SKIP_USER_START_STAGE if start_index > _STAGE_INDEX[StageKind.CONVERT] else None
 
     if _STAGE_INDEX[stage] < start_index:

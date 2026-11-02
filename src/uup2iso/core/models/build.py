@@ -36,6 +36,8 @@ class BuildInfo:
     channel: str | None = None
     released_at: datetime | None = None
     title: str | None = None
+    id: str = ""
+    """数据源内部标识（uupdump 的 uuid）；换取语言/edition/清单时用它。"""
 
     @property
     def build_number(self) -> str:

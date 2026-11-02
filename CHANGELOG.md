@@ -1,5 +1,65 @@
 # CHANGELOG
 
+## 0.1.25 — WP2-T1 数据源抽象与 uupdump 实现
+
+> 依据：下载 §2.1、§2.2、§2.4。
+> 验收：地址可配（含备用列表）、必需/可选字段分级、错误分类准确；**已用真实构建联调通过**。
+
+### 新增
+- **`infrastructure/source/base.py`**：`UupSource` 协议（`list_builds` / `list_languages` /
+  `list_editions` / `get_files`）+ `SourceError`（退出码 4）。
+- **`infrastructure/source/uupdump.py`**：`UupDumpSource` ——
+  - 站点地址自动映射 API 域（`uupdump.net` → `api.uupdump.net`），可换镜像/自建；
+  - 礼貌约束：请求间隔 ≥300 ms、带产品 UA、同源串行（锁）；
+  - 失败切换：同一地址**连续失败 3 次**才切备用，记 `source_failover`；
+  - 错误分类：超时/非 200 → `SOURCE_UNAVAILABLE`，429 → `SOURCE_RATE_LIMITED`，结构不符 → `SOURCE_SCHEMA_INVALID`；
+  - 字段分级：文件名/大小/SHA1/URL 缺失或非法 → 致命；`sha256`/`expire` 缺失 → 告警；未知字段收进 `unknown_fields`。
+- **`core/models/source.py`**：`EditionInfo`、`SourcePayload`（含 `total_bytes`、`url_expired`）。
+- `BuildInfo` 增加 `id`（数据源内部标识，换取详情用）。
+- **`scripts/smoke_source.py`**：真实联调脚本（不进 CI）。
+- **`tests/fixtures/source/`**：真实响应夹具（listid/langs/eds/get，共 17 KB），离线测试用。
+
+### 真实联调结果（2026-11-02）
+```
+[OK] 构建 500 个（search=26100）
+     26100.9725 x64  Windows 11, version 24H2 (26100.9725)  id=4ef76f77
+[OK] 语言 39 个：en-us, ar-sa, ko-kr, …
+[OK] edition 3 个：PROFESSIONAL(Windows Pro), CORE(Windows Home), CORECOUNTRYSPECIFIC(Windows Home China)
+[OK] 清单 97 个文件 / 9.09 GB（build=26100.9725 arch=amd64，URL 0.2 小时后过期）
+```
+
+### 实测发现（已按此实现，并回写 下载 §2.1）
+| # | 现象 | 处理 |
+| --- | --- | --- |
+| 1 | 个别文件名带 **UUID 前缀**（`AggregatedMetadata.cab`），且前缀**不等于**当前 build 的 uuid | 按 UUID 形态正则归一化 + `file_name_normalized` 告警 |
+| 2 | 站点给的是 **http 直链**（微软 CDN），与 §3.2-4 的 https 要求冲突 | 先记 `insecure_url`；是否 http→https 升级留给清单生成（T3）决定 |
+| 3 | 下载 URL **有效期极短**（实测 ~0.2 小时） | 解析出 `expires_at` + `url_expired`；T5 的 10 分钟 TTL 已接近上限，下载前必须校验 |
+| 4 | 服务端累积更新（`Update for Microsoft server operating system`）**没有语言列表** | 返回空 + `no_languages` 告警，由调用方跳过（不是站点故障） |
+
+### 决策
+| # | 决策 | 理由 |
+| --- | --- | --- |
+| D1 | 站点地址 → API 域自动映射 | 配置里写用户能看到的站点，实现里用真实 API，业务代码不感知 |
+| D2 | 空语言/edition 返回空而非报错 | 站点上确有「非完整 OS 构建」，报错会让整条列表不可用 |
+| D3 | 坏构建条目跳过并告警，全坏才报错 | 一条脏数据不该让 500 条列表整体失败 |
+| D4 | `insecure_url` 只告警不拒绝 | 直接拒绝等于「这个源不能用」；升级 scheme 属清单生成职责 |
+| D5 | 首次请求不等待 | 300 ms 只约束连发，不该让第一次调用白等 |
+
+### 测试
+- `test_source_uupdump.py`（23）：构建解析/搜索参数/UA/架构映射/坏条目跳过/全坏报错、
+  语言小写与空列表、edition 显示名与空列表、清单解析与名称归一化/http 告警/缺字段致命/SHA1 非法/未知字段、
+  500 与 429 分类、坏 JSON、三次失败后回退、无备用不回退、300 ms 间隔、API 域映射。
+- 全量：`pytest 687 passed`；`mypy 107 files`；`ruff`/`format` 全绿。
+
+### 变更（文档）
+- `下载` v0.2 → **v0.3**：§2.1 补落地状态与四条实测发现；`术语表 §1.2` 同步。
+
+### 已知限制
+- **缓存未做**（WP2-T5）：现在每次调用都真实联网；10 分钟 TTL 与过期容错在 T5。
+- **无过滤能力**（WP2-T2）：`list_builds` 只支持关键字，通道/架构/语言/版本过滤与 KB 详情在 T2。
+- **不解析 `updateInfo`**：`get.php` 的 `updateInfo` 目前为 null；KB 列表解析属 T2。
+- **URL 过期不自动重取**：`SourcePayload.url_expired` 只是标记，重取策略在 T5/T6。
+
 ## 0.1.24 — WP1-T6 CLI 输出与退出码 + WP1-T7 dry-run 预览
 
 > 依据：GUI框架 §5.6；日志 §6.1；编排 §9；输出 §10（不建暂存区）。

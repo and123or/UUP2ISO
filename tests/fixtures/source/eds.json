@@ -1,0 +1,16 @@
+{
+  "response": {
+    "apiVersion": "I can't be bothered to update the version; use commit hash.",
+    "editionList": [
+      "CORECOUNTRYSPECIFIC",
+      "CORE",
+      "PROFESSIONAL"
+    ],
+    "editionFancyNames": {
+      "CORECOUNTRYSPECIFIC": "Windows Home China",
+      "CORE": "Windows Home",
+      "PROFESSIONAL": "Windows Pro"
+    }
+  },
+  "jsonApiVersion": "0.2.3"
+}

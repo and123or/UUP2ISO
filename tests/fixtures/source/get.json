@@ -1,0 +1,68 @@
+{
+  "response": {
+    "apiVersion": "I can't be bothered to update the version; use commit hash.",
+    "updateName": "Windows 11, version 24H2 (26100.994)",
+    "arch": "amd64",
+    "build": "26100.994",
+    "sku": 48,
+    "hasUpdates": true,
+    "appxPresent": false,
+    "files": {
+      "00c26a49-4fd4-4bff-8812-66f8d4721fe9.AggregatedMetadata.cab": {
+        "sha1": "207bbee9faea8ef6568aa694f56f9dbfb7b5aefc",
+        "sha256": "b23cb172a497d962732cff8e83687f381f1dceb518c213bd14f3bc76749d7d96",
+        "size": "2830538",
+        "url": "http://tlu.dl.delivery.mp.microsoft.com/filestreamingservice/files/6ee08a74-cc80-4c54-93fc-4b88c5435177?P1=1793584988&P2=404&P3=2&P4=RqpJoJk6YBEpG60s8dsR3fllOKsgOzzVDRS17Anbm8qkqDbv6QOmf66g3KoT75fzdE0G51WPABSnvZQ1pxo6fg%3d%3d",
+        "uuid": "6ee08a74-cc80-4c54-93fc-4b88c5435177",
+        "expire": 1793584988,
+        "debug": "<FileLocation><FileDigest>IHu+6frqjvZWiqaU9W+dv7e1rvw=</FileDigest><Url>http://tlu.dl.delivery.mp.microsoft.com/filestreamingservice/files/6ee08a74-cc80-4c54-93fc-4b88c5435177?P1=1793584988&amp;P2=404&amp;P3=2&amp;P4=RqpJoJk6YBEpG60s8dsR3fllOKsgOzzVDRS17Anbm8qkqDbv6QOmf66g3KoT75fzdE0G51WPABSnvZQ1pxo6fg%3d%3d</Url></FileLocation>"
+      },
+      "DesktopDeployment.cab": {
+        "sha1": "bc3936458cc81983b47e5d2bd226b8e20a6bbff6",
+        "sha256": "a9e3b4616b8b2faaae36beba898e36b6ec9eaab21b71c70c4f2e7b1b1f21c8a4",
+        "size": "6798426",
+        "url": "http://tlu.dl.delivery.mp.microsoft.com/filestreamingservice/files/edd92941-787a-4772-bc83-d8003aabfce4?P1=1793585068&P2=404&P3=2&P4=M5DdzfV83NMTsNZ6VfhKLb3%2bnA1cv9rxsyDFQd9AFf2flz%2b801lRegaq3ctnrB1mDifR8ne3%2fcv7UDxkeYTtSQ%3d%3d",
+        "uuid": "edd92941-787a-4772-bc83-d8003aabfce4",
+        "expire": 1793585068,
+        "debug": "<FileLocation><FileDigest>vDk2RYzIGYO0fl0r0ia44gprv/Y=</FileDigest><Url>http://tlu.dl.delivery.mp.microsoft.com/filestreamingservice/files/edd92941-787a-4772-bc83-d8003aabfce4?P1=1793585068&amp;P2=404&amp;P3=2&amp;P4=M5DdzfV83NMTsNZ6VfhKLb3%2bnA1cv9rxsyDFQd9AFf2flz%2b801lRegaq3ctnrB1mDifR8ne3%2fcv7UDxkeYTtSQ%3d%3d</Url></FileLocation>"
+      },
+      "Edge.wim": {
+        "sha1": "1f0bea8f9544226697bb7e43e026ee5e7812fe10",
+        "sha256": "799e8766a3b630f4f66dd142c963d7c26fd7b85cc2b3f12dec6c6afc6cafe350",
+        "size": "180196966",
+        "url": "http://tlu.dl.delivery.mp.microsoft.com/filestreamingservice/files/3e4d0618-77e6-4a9b-8f8a-9a945e226e73?P1=1793588210&P2=404&P3=2&P4=ApOwtvlBrDN4sO4FQA0k48dLhi92sN%2f%2fjaXu9q2MzUIHlnFdc9uhMxmRk6zUJ6L8D%2fpRjmLkSyoyU9Ivio7sdA%3d%3d",
+        "uuid": "3e4d0618-77e6-4a9b-8f8a-9a945e226e73",
+        "expire": 1793588210,
+        "debug": "<FileLocation><FileDigest>Hwvqj5VEImaXu35D4CbuXngS/hA=</FileDigest><Url>http://tlu.dl.delivery.mp.microsoft.com/filestreamingservice/files/3e4d0618-77e6-4a9b-8f8a-9a945e226e73?P1=1793588210&amp;P2=404&amp;P3=2&amp;P4=ApOwtvlBrDN4sO4FQA0k48dLhi92sN%2f%2fjaXu9q2MzUIHlnFdc9uhMxmRk6zUJ6L8D%2fpRjmLkSyoyU9Ivio7sdA%3d%3d</Url></FileLocation>"
+      },
+      "HyperV-OptionalFeature-VirtualMachinePlatform-Client-Disabled-FOD-Package-amd64.cab": {
+        "sha1": "1eb80d9c5882c3b049fc7974769c410006187265",
+        "sha256": "0b68c5e61ce1655fc7d6594d02b664bc83bdad249d4f725ff24899b3dadff749",
+        "size": "28647459",
+        "url": "http://tlu.dl.delivery.mp.microsoft.com/filestreamingservice/files/5b9d22ac-3123-4531-8ad4-575dd7a20d25?P1=1793585446&P2=404&P3=2&P4=fEivu31FadzZbetICRb7quMrKPbES4cA2nq91kZ1Vbd9HPAPHdVG3HotXuuicNZcQx%2bMfn1In4QbSYpBVkW%2bZw%3d%3d",
+        "uuid": "5b9d22ac-3123-4531-8ad4-575dd7a20d25",
+        "expire": 1793585446,
+        "debug": "<FileLocation><FileDigest>HrgNnFiCw7BJ/Hl0dpxBAAYYcmU=</FileDigest><Url>http://tlu.dl.delivery.mp.microsoft.com/filestreamingservice/files/5b9d22ac-3123-4531-8ad4-575dd7a20d25?P1=1793585446&amp;P2=404&amp;P3=2&amp;P4=fEivu31FadzZbetICRb7quMrKPbES4cA2nq91kZ1Vbd9HPAPHdVG3HotXuuicNZcQx%2bMfn1In4QbSYpBVkW%2bZw%3d%3d</Url></FileLocation>"
+      },
+      "Microsoft-Edge-WebView-FOD-Package-amd64.cab": {
+        "sha1": "5c1606450519a7be2c7ef34cbac017623c78e0d2",
+        "sha256": "0d2d2e1469a5fdf2320e2dd14d494c4e5466b5cd33b3677248a9f16a5f07d73c",
+        "size": "203324927",
+        "url": "http://tlu.dl.delivery.mp.microsoft.com/filestreamingservice/files/d6e72098-1575-4186-af11-96fec4019e49?P1=1793588614&P2=404&P3=2&P4=d22pPt4bppol0zPc97%2b%2f6e4JZhEBp%2bT8sd3hubOBJbOJdkfkV%2fwQyZGZASS3Oy0urmRFBcYpd%2b%2bBikOwdtAn6g%3d%3d",
+        "uuid": "d6e72098-1575-4186-af11-96fec4019e49",
+        "expire": 1793588614,
+        "debug": "<FileLocation><FileDigest>XBYGRQUZp74sfvNMusAXYjx44NI=</FileDigest><Url>http://tlu.dl.delivery.mp.microsoft.com/filestreamingservice/files/d6e72098-1575-4186-af11-96fec4019e49?P1=1793588614&amp;P2=404&amp;P3=2&amp;P4=d22pPt4bppol0zPc97%2b%2f6e4JZhEBp%2bT8sd3hubOBJbOJdkfkV%2fwQyZGZASS3Oy0urmRFBcYpd%2b%2bBikOwdtAn6g%3d%3d</Url></FileLocation>"
+      },
+      "Microsoft-OneCore-ApplicationModel-Sync-Desktop-FOD-Package-amd64.cab": {
+        "sha1": "9d6f0912250753744696ddac860189dabb0c69e8",
+        "sha256": "cab02675b2e89dbbf5018c4252944aa704bc8e90db5afb0bbbea4033cb26ca17",
+        "size": "3923301",
+        "url": "http://tlu.dl.delivery.mp.microsoft.com/filestreamingservice/files/9895bdfc-5dd4-4df8-964b-69d992e70f06?P1=1793584992&P2=404&P3=2&P4=dqMS%2fiKTALHTamk7Hm5Nd5mv0vmqqzfw6ZTYICxyf65dMe1nQcuM1cvWFwlT%2bJ3%2bdsSd6WRWhlkeWp9Ns6SayQ%3d%3d",
+        "uuid": "9895bdfc-5dd4-4df8-964b-69d992e70f06",
+        "expire": 1793584992,
+        "debug": "<FileLocation><FileDigest>nW8JEiUHU3RGlt2shgGJ2rsMaeg=</FileDigest><Url>http://tlu.dl.delivery.mp.microsoft.com/filestreamingservice/files/9895bdfc-5dd4-4df8-964b-69d992e70f06?P1=1793584992&amp;P2=404&amp;P3=2&amp;P4=dqMS%2fiKTALHTamk7Hm5Nd5mv0vmqqzfw6ZTYICxyf65dMe1nQcuM1cvWFwlT%2bJ3%2bdsSd6WRWhlkeWp9Ns6SayQ%3d%3d</Url></FileLocation>"
+      }
+    }
+  },
+  "jsonApiVersion": "0.2.3"
+}

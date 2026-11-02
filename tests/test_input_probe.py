@@ -161,6 +161,55 @@ def test_uup_folder_is_accepted(tmp_path: Path) -> None:
     assert "editions_pending_convert" in report.warnings
 
 
+# --- 无清单 UUP 目录（P0-1）------------------------------------------------
+
+
+def _make_uup_without_manifest(folder: Path) -> None:
+    folder.mkdir()
+    (folder / "6c7bf258-2632-47dd-83ee-c23945978da1.AggregatedMetadata.cab").write_bytes(b"CAB")
+    (folder / "Microsoft-Windows-Foundation-Package.ESD").write_bytes(b"ESD")
+    (folder / "professional_zh-cn.esd").write_bytes(b"ESD")
+    (folder / "DesktopDeployment.cab").write_bytes(b"CAB")
+
+
+def test_uup_without_manifest_is_accepted(tmp_path: Path) -> None:
+    folder = tmp_path / "uup"
+    _make_uup_without_manifest(folder)
+
+    report = InputProber().probe(folder)
+
+    assert report.type is InputKind.UUP_FOLDER
+    assert report.uup is not None
+    assert report.uup.manifest_present is False
+    assert report.uup.esd_count == 2
+    assert "uup_manifest_missing" in report.warnings
+    assert report.bootable is False
+
+
+def test_probe_json_includes_uup_block(tmp_path: Path) -> None:
+    folder = tmp_path / "uup"
+    _make_uup_without_manifest(folder)
+
+    payload = InputProber().probe(folder).to_probe_json()
+    uup = payload["uup"]
+
+    assert uup["manifestMissing"] is True
+    assert uup["hasAggregatedMetadata"] is True
+    assert uup["esd"] == 2
+    assert uup["partials"] == 0
+    assert uup["totalBytes"] > 0
+
+
+def test_uup_with_wim_component_is_not_ambiguous(tmp_path: Path) -> None:
+    """`Edge.wim` 是组件，不该让输入变成 INPUT_AMBIGUOUS。"""
+    folder = tmp_path / "uup"
+    _make_uup_without_manifest(folder)
+    (folder / "Edge.wim").write_bytes(WIM_MAGIC + bytes(64))
+
+    report = InputProber().probe(folder)
+    assert report.type is InputKind.UUP_FOLDER
+
+
 def test_missing_path_is_unreadable(tmp_path: Path) -> None:
     with pytest.raises(InputError) as caught:
         InputProber().probe(tmp_path / "nope.iso")

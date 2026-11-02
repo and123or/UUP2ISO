@@ -17,7 +17,9 @@ from uup2iso.core.errors import ErrorCode, InputError
 from uup2iso.infrastructure.input.sniff import (
     InputKind,
     SniffResult,
+    UupEvidence,
     sniff_path,
+    uup_folder_evidence,
 )
 from uup2iso.infrastructure.input.wiminfo import WimImage, WimInfo
 
@@ -69,6 +71,8 @@ class ProbeReport:
     bootable: bool = False
     read_only_source: bool = True
     warnings: tuple[str, ...] = field(default_factory=tuple)
+    uup: UupEvidence | None = None
+    """UUP 目录的结构统计（仅 `type=uup_folder` 时非空）。"""
 
     def to_probe_json(self, *, detected_at: datetime | None = None) -> dict[str, object]:
         """按输入 §4 的结构输出。"""
@@ -96,6 +100,23 @@ class ProbeReport:
             ],
             "bootable": self.bootable,
             "warnings": list(self.warnings),
+            **(
+                {
+                    "uup": {
+                        "manifestMissing": not self.uup.manifest_present,
+                        "hasAggregatedMetadata": self.uup.has_aggregate_metadata,
+                        "files": self.uup.files_count,
+                        "esd": self.uup.esd_count,
+                        "cab": self.uup.cab_count,
+                        "msu": self.uup.msu_count,
+                        "appx": self.uup.appx_count,
+                        "totalBytes": self.uup.total_bytes,
+                        "partials": self.uup.partial_count,
+                    }
+                }
+                if self.uup is not None
+                else {}
+            ),
         }
 
 
@@ -177,13 +198,21 @@ class InputProber:
             warnings.append("images_pending_extract")
             warnings.append("bootable_unknown")
         elif kind is InputKind.UUP_FOLDER:
+            evidence = uup_folder_evidence(candidate.path)
             warnings.append("editions_pending_convert")
+            if not evidence.manifest_present:
+                warnings.append("uup_manifest_missing")
+            if evidence.partial_count:
+                warnings.append(f"uup_partial_files count={evidence.partial_count}")
+            if not evidence.complete_enough:
+                warnings.append("uup_incomplete")
 
         return ProbeReport(
             type=kind,
             path=candidate.path,
             candidates=tuple(_as_candidate(item) for item in all_candidates),
             images=images,
+            uup=(evidence if kind is InputKind.UUP_FOLDER else None),
             extension_mismatch=candidate.extension_mismatch,
             encrypted=encrypted,
             multi_volume=False,

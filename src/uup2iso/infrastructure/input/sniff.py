@@ -21,8 +21,11 @@ __all__ = [
     "WIM_MAGIC",
     "InputKind",
     "SniffResult",
+    "UUP_MIN_ESD_WITHOUT_MANIFEST",
+    "UupEvidence",
     "find_image_files",
     "is_uup_folder",
+    "uup_folder_evidence",
     "sniff_file",
     "sniff_path",
 ]
@@ -32,6 +35,9 @@ ISO_SIGNATURE = b"CD001"
 ISO_OFFSET = 32769
 HEAD_SIZE = 64 * 1024
 """固定读 64 KB（输入 §2.2：必须 ≥ 32774 字节）。"""
+
+UUP_MIN_ESD_WITHOUT_MANIFEST = 3
+"""无清单时，至少这么多 `.esd` 且存在 `.cab` 才判 UUP 目录（防误判）。"""
 
 UUP_MANIFEST_NAMES: tuple[str, ...] = (
     "uupdump.mk",
@@ -85,6 +91,31 @@ class SniffResult:
     warnings: tuple[str, ...] = field(default_factory=tuple)
 
 
+@dataclass(frozen=True, slots=True)
+class UupEvidence:
+    """UUP 目录的特征统计（用于判定、`probe.json` 与 dry-run 展示）。"""
+
+    matched: bool = False
+    manifest_present: bool = False
+    """是否存在清单类文件（`files.txt`/`uup-info.json`/`*.cmd` 等）。"""
+    has_aggregate_metadata: bool = False
+    """是否存在 `*AggregatedMetadata.cab`（UUP dump 标志）。"""
+    esd_count: int = 0
+    cab_count: int = 0
+    msu_count: int = 0
+    appx_count: int = 0
+    files_count: int = 0
+    total_bytes: int = 0
+    partial_count: int = 0
+    """`.part`/`.aria2`/`.tmp` 残留数量（>0 说明没下完）。"""
+    evidence: tuple[Path, ...] = ()
+
+    @property
+    def complete_enough(self) -> bool:
+        """是否「看起来下完了」：有 ESD 且没有残留。"""
+        return self.esd_count > 0 and self.partial_count == 0
+
+
 def sniff_file(path: Path) -> SniffResult:
     """读文件头判定单文件类型（不做 edtion/加密判定，那些需要 wimlib）。"""
     suffix = path.suffix.lower()
@@ -125,29 +156,94 @@ def sniff_file(path: Path) -> SniffResult:
 
 
 def is_uup_folder(path: Path) -> tuple[bool, tuple[Path, ...]]:
-    """目录是否为 UUP 文件夹；返回 ``(命中, 命中的证据文件)``。"""
+    """目录是否为 UUP 文件夹；返回 ``(命中, 命中的证据文件)``。
+
+    **清单不是必要条件**（2026-11-02 放宽）：真实下载的 UUP 数据常常没有
+    `files.txt`/`uup-info.json`（本项目的 26300.9818 样本即如此），
+    所以清单缺失时改看**结构特征**：
+
+    * 有 `AggregatedMetadata.cab`（UUP dump 的标志性文件）；
+    * 或 `.esd` ≥ :data:`UUP_MIN_ESD_WITHOUT_MANIFEST` 且至少 1 个 `.cab`
+      （安装映像被拆成几十个组件包的典型形态）。
+
+    宁可拒绝、不可猜：两条都不满足时仍判「不是 UUP 目录」。
+    """
+    info = _classify_uup_folder(path)
+    return info.matched, info.evidence
+
+
+def uup_folder_evidence(path: Path) -> UupEvidence:
+    """目录的 UUP 特征统计（供 `probe.json` 与 dry-run 展示）。"""
+    return _classify_uup_folder(path)
+
+
+def _classify_uup_folder(path: Path) -> UupEvidence:
     if not path.is_dir():
-        return False, ()
+        return UupEvidence()
 
     manifests = [path / name for name in UUP_MANIFEST_NAMES if (path / name).is_file()]
     if not manifests:
         manifests = sorted(path.glob("*.cmd"))[:1]
-    archives = [
+
+    search_dirs = [path]
+    nested = path / "UUPs"
+    has_flat_archives = any(
+        item.is_file() and item.suffix.lower() in _ARCHIVE_SUFFIXES for item in path.iterdir()
+    )
+    if not has_flat_archives and nested.is_dir():
+        search_dirs.append(nested)
+
+    files: list[Path] = []
+    for directory in search_dirs:
+        files.extend(item for item in directory.iterdir() if item.is_file())
+
+    esds = [item for item in files if item.suffix.lower() == ".esd"]
+    cabs = [item for item in files if item.suffix.lower() == ".cab"]
+    msus = [item for item in files if item.suffix.lower() == ".msu"]
+    appx = [
         item
-        for item in path.iterdir()
-        if item.is_file() and item.suffix.lower() in _ARCHIVE_SUFFIXES
+        for item in files
+        if item.suffix.lower() in (".msix", ".appx", ".msixbundle", ".appxbundle")
     ]
-    if not archives:
-        uups = path / "UUPs"
-        if uups.is_dir():
-            archives = [
-                item
-                for item in uups.iterdir()
-                if item.is_file() and item.suffix.lower() in _ARCHIVE_SUFFIXES
-            ]
-    if manifests and archives:
-        return True, (*manifests, archives[0])
-    return False, ()
+    partials = [
+        item
+        for item in files
+        if item.suffix.lower() in (".part", ".aria2", ".tmp") or item.name.endswith(".aria2__temp")
+    ]
+    aggregate_meta = next(
+        (item for item in cabs if item.name.endswith("AggregatedMetadata.cab")), None
+    )
+
+    matched = False
+    if (
+        manifests
+        and (esds or cabs or msus)
+        or aggregate_meta is not None
+        or len(esds) >= UUP_MIN_ESD_WITHOUT_MANIFEST
+        and cabs
+    ):
+        matched = True
+
+    evidence: list[Path] = []
+    evidence.extend(manifests[:1])
+    if aggregate_meta is not None:
+        evidence.append(aggregate_meta)
+    evidence.extend(esds[:1])
+    evidence.extend(cabs[:1])
+
+    return UupEvidence(
+        matched=matched,
+        manifest_present=bool(manifests),
+        has_aggregate_metadata=aggregate_meta is not None,
+        esd_count=len(esds),
+        cab_count=len(cabs),
+        msu_count=len(msus),
+        appx_count=len(appx),
+        files_count=len(files),
+        total_bytes=sum(item.stat().st_size for item in files if item.is_file()),
+        partial_count=len(partials),
+        evidence=tuple(evidence),
+    )
 
 
 def find_image_files(directory: Path) -> tuple[Path, ...]:
@@ -172,16 +268,22 @@ def sniff_path(path: Path) -> tuple[SniffResult, ...]:
         return ()
 
     candidates: list[SniffResult] = []
-    uup, evidence_files = is_uup_folder(path)
-    if uup:
+    info = _classify_uup_folder(path)
+    if info.matched:
         candidates.append(
             SniffResult(
                 kind=InputKind.UUP_FOLDER,
                 path=path,
-                evidence="+".join(item.name for item in evidence_files[:2]),
-                size_bytes=sum(item.stat().st_size for item in path.iterdir() if item.is_file()),
+                evidence=",".join(item.name for item in info.evidence[:2]),
+                size_bytes=info.total_bytes,
             )
         )
+        # UUP 目录里的 .wim/.esd 是**组件**，不是独立输入；只有 .iso 才可能是混入的介质
+        for item in find_image_files(path):
+            if item.suffix.lower() == ".iso":
+                candidates.append(sniff_file(item))
+        return tuple(candidates)
+
     for item in find_image_files(path):
         candidates.append(sniff_file(item))
     return tuple(candidates)

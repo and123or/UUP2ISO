@@ -17,6 +17,7 @@ from uup2iso.infrastructure.input import (
     is_uup_folder,
     sniff_file,
     sniff_path,
+    uup_folder_evidence,
 )
 
 
@@ -141,6 +142,83 @@ def test_find_image_files_ignores_nested(tmp_path: Path) -> None:
     write_iso(tmp_path / "sub" / "b.iso")
 
     assert [item.name for item in find_image_files(tmp_path)] == ["a.iso"]
+
+
+# --- 无清单识别（P0-1，2026-11-02）------------------------------------------
+
+
+def test_uup_without_manifest_but_aggregated_metadata(tmp_path: Path) -> None:
+    """真实下载的 UUP 数据常没有清单，靠 AggregatedMetadata.cab 识别。"""
+    folder = tmp_path / "uup"
+    folder.mkdir()
+    (folder / "6c7bf258-2632-47dd-83ee-c23945978da1.AggregatedMetadata.cab").write_bytes(b"CAB")
+    (folder / "a.ESD").write_bytes(b"ESD")
+
+    assert is_uup_folder(folder)[0] is True
+
+
+def test_uup_without_manifest_needs_enough_esd(tmp_path: Path) -> None:
+    """无清单也没有 AggregatedMetadata 时，要求 ≥3 个 .esd 且有 .cab。"""
+    folder = tmp_path / "uup"
+    folder.mkdir()
+    for index in range(3):
+        (folder / f"p{index}.esd").write_bytes(b"ESD")
+    (folder / "x.cab").write_bytes(b"CAB")
+
+    assert is_uup_folder(folder)[0] is True
+
+
+def test_single_esd_without_manifest_is_not_uup(tmp_path: Path) -> None:
+    """宁可拒绝、不可猜：只有 1 个 esd 且无 cab/无 agg 时不算 UUP。"""
+    folder = tmp_path / "uup"
+    folder.mkdir()
+    (folder / "only.esd").write_bytes(b"ESD")
+
+    assert is_uup_folder(folder)[0] is False
+
+
+def test_uup_evidence_counts_and_partials(tmp_path: Path) -> None:
+    folder = tmp_path / "uup"
+    folder.mkdir()
+    (folder / "AggregatedMetadata.cab").write_bytes(b"CAB")
+    (folder / "a.esd").write_bytes(b"ESD")
+    (folder / "b.esd").write_bytes(b"ESD")
+    (folder / "c.msix").write_bytes(b"MSIX")
+    (folder / "d.cab.part").write_bytes(b"partial")
+
+    evidence = uup_folder_evidence(folder)
+
+    assert evidence.matched is True
+    assert evidence.manifest_present is False
+    assert evidence.has_aggregate_metadata is True
+    assert (evidence.esd_count, evidence.cab_count, evidence.appx_count) == (2, 1, 1)
+    assert evidence.partial_count == 1
+    assert evidence.complete_enough is False, "有 .part 残留就不算下完"
+
+
+def test_uup_components_are_not_candidates(tmp_path: Path) -> None:
+    """UUP 目录里的 .wim/.esd 是组件，不该被当成独立输入候选。"""
+    folder = tmp_path / "uup"
+    folder.mkdir()
+    (folder / "AggregatedMetadata.cab").write_bytes(b"CAB")
+    write_wim(folder / "Edge.wim")
+    write_wim(folder / "install.ESD")
+
+    candidates = sniff_path(folder)
+
+    assert [item.kind for item in candidates] == [InputKind.UUP_FOLDER]
+
+
+def test_uup_with_mixed_iso_is_still_ambiguous(tmp_path: Path) -> None:
+    """真混入 ISO 时仍要报歧义（不猜）。"""
+    folder = tmp_path / "uup"
+    folder.mkdir()
+    (folder / "AggregatedMetadata.cab").write_bytes(b"CAB")
+    write_wim(folder / "a.esd")
+    write_iso(folder / "extra.iso")
+
+    kinds = {item.kind for item in sniff_path(folder)}
+    assert kinds == {InputKind.UUP_FOLDER, InputKind.ISO}
 
 
 def test_missing_path_has_no_candidates(tmp_path: Path) -> None:

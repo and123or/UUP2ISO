@@ -124,11 +124,93 @@ def test_selfcheck_failure_raises_input_error(tmp_path: Path) -> None:
     assert "install.wim 缺失" in caught.value.message
 
 
-def test_missing_ops_raises_stage_error(tmp_path: Path) -> None:
+def test_missing_input_raises_input_error(tmp_path: Path) -> None:
+    """默认使用内置 ops：输入不存在时报 INPUT_UNREADABLE（不是内部错误）。"""
     handler = PrepareStageHandler()
 
-    with pytest.raises(StageExecutionError):
+    with pytest.raises(InputError) as caught:
         asyncio.run(handler.run(make_ctx(tmp_path)))
+    assert caught.value.code is ErrorCode.INPUT_UNREADABLE
+
+
+def test_builtin_ops_refuses_unwired_engine_actions(tmp_path: Path) -> None:
+    """物化/解包属引擎层：内置实现必须**明确报未接线**，不能静默成功。"""
+    from uup2iso.application.pipeline.handlers.prepare import BuiltinPrepareOps
+
+    ops = BuiltinPrepareOps()
+    ctx = make_ctx(tmp_path)
+    report = ops.probe(tmp_path / "fake.iso") if False else None  # 不真探测
+
+    with pytest.raises(StageExecutionError) as caught:
+        ops.materialize(ctx, report)  # type: ignore[arg-type]
+    assert caught.value.code is ErrorCode.INTERNAL_ERROR
+    assert "尚未接线" in caught.value.message
+
+    with pytest.raises(StageExecutionError):
+        ops.extract(ctx, report)  # type: ignore[arg-type]
+
+
+def test_builtin_selfcheck_accepts_uup_folder_without_manifest(tmp_path: Path) -> None:
+    """无清单的 UUP 目录也应通过自检（P0-2 换判据）。"""
+    from types import SimpleNamespace
+
+    from uup2iso.application.pipeline.handlers.prepare import BuiltinPrepareOps
+    from uup2iso.core.models import default_task_config
+    from uup2iso.core.models.enums import EntryPoint
+
+    uup = tmp_path / "uups"
+    uup.mkdir()
+    (uup / "6c7bf258-2632-47dd-83ee-c23945978da1.AggregatedMetadata.cab").write_bytes(b"CAB")
+    (uup / "Microsoft-Windows-Foundation-Package.ESD").write_bytes(b"ESD")
+    (uup / "professional_zh-cn.esd").write_bytes(b"ESD")
+
+    config = default_task_config(mode=EntryPoint.UUP_FOLDER)
+    config.input.uup_folder = {"path": str(uup)}  # type: ignore[assignment]
+    ctx = SimpleNamespace(config=config, work_dir=tmp_path / "work")
+
+    ok, detail = BuiltinPrepareOps().selfcheck(ctx, None)  # type: ignore[arg-type]
+    assert ok is True
+    assert "2 个 .esd" in detail
+    assert "无清单文件" in detail
+
+
+def test_builtin_selfcheck_rejects_partial_download(tmp_path: Path) -> None:
+    from types import SimpleNamespace
+
+    from uup2iso.application.pipeline.handlers.prepare import BuiltinPrepareOps
+    from uup2iso.core.models import default_task_config
+    from uup2iso.core.models.enums import EntryPoint
+
+    uup = tmp_path / "uups"
+    uup.mkdir()
+    (uup / "a.esd").write_bytes(b"ESD")
+    (uup / "b.cab.part").write_bytes(b"partial")
+
+    config = default_task_config(mode=EntryPoint.UUP_FOLDER)
+    config.input.uup_folder = {"path": str(uup)}  # type: ignore[assignment]
+    ctx = SimpleNamespace(config=config, work_dir=tmp_path / "work")
+
+    ok, detail = BuiltinPrepareOps().selfcheck(ctx, None)  # type: ignore[arg-type]
+    assert ok is False
+    assert "残留" in detail
+
+
+def test_builtin_selfcheck_rejects_empty_folder(tmp_path: Path) -> None:
+    from types import SimpleNamespace
+
+    from uup2iso.application.pipeline.handlers.prepare import BuiltinPrepareOps
+    from uup2iso.core.models import default_task_config
+    from uup2iso.core.models.enums import EntryPoint
+
+    uup = tmp_path / "empty"
+    uup.mkdir()
+    config = default_task_config(mode=EntryPoint.UUP_FOLDER)
+    config.input.uup_folder = {"path": str(uup)}  # type: ignore[assignment]
+    ctx = SimpleNamespace(config=config, work_dir=tmp_path / "work")
+
+    ok, detail = BuiltinPrepareOps().selfcheck(ctx, None)  # type: ignore[arg-type]
+    assert ok is False
+    assert "未找到任何 .esd" in detail
 
 
 def test_describe_lists_planned_commands(tmp_path: Path) -> None:

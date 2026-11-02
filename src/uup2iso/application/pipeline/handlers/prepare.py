@@ -21,8 +21,9 @@ from uup2iso.core.models.config import TaskConfig
 from uup2iso.core.models.enums import EntryPoint
 from uup2iso.core.models.pipeline import StageKind
 from uup2iso.infrastructure.input.probe import ProbeReport
+from uup2iso.infrastructure.input.sniff import uup_folder_evidence
 
-__all__ = ["PrepareOps", "PrepareOutcome", "PrepareStageHandler"]
+__all__ = ["BuiltinPrepareOps", "PrepareOps", "PrepareOutcome", "PrepareStageHandler"]
 
 _PROBE_RELATIVE = Path("input") / "probe.json"
 
@@ -64,7 +65,8 @@ class PrepareStageHandler:
     stage = StageKind.PREPARE
 
     def __init__(self, ops: PrepareOps | None = None) -> None:
-        self._ops = ops
+        # 未注入时用内置实现：识别与自检不依赖引擎层（只有解包/物化才需要）
+        self._ops: PrepareOps | None = ops or BuiltinPrepareOps()
         self.outcome: PrepareOutcome | None = None
 
     # -- StageHandler -----------------------------------------------------
@@ -124,6 +126,17 @@ class PrepareStageHandler:
         plan = ctx.plan
         executed = {substep.name for substep in plan.executed_substeps}
         source = resolve_input_path(config)
+
+        # 入口 B 没有单一映像可查：只做目录结构自检（不发外部命令）
+        if config.input.mode is EntryPoint.UUP_FOLDER:
+            evidence = uup_folder_evidence(source)
+            return (
+                f"# 结构自检 {source}：{evidence.files_count} 个文件 / "
+                f"{evidence.esd_count} 个 .esd / {evidence.cab_count} 个 .cab"
+                f"{'（无清单）' if not evidence.manifest_present else ''}",
+                f"# 写入 {ctx.work_dir / 'input' / 'probe.json'}",
+            )
+
         commands: list[str] = []
 
         if "probe" in executed:
@@ -170,6 +183,78 @@ class PrepareStageHandler:
                 code=ErrorCode.INTERNAL_ERROR,
             )
         return self._ops
+
+
+class BuiltinPrepareOps:
+    """不依赖引擎层的 `Prepare` 动作：识别 + 自检。
+
+    * `probe` —— 复用 `InputProber`（内容嗅探 + 可选 wimlib）；
+    * `selfcheck` —— 按入口换判据（UUP 目录看组件完整度，映像看文件可读）；
+    * `materialize` / `extract` —— 需要 wimlib/7z 真实动作，属引擎层，**明确报未接线**
+      （不静默跳过，否则用户会以为已经解包完成）。
+    """
+
+    def probe(self, path: Path) -> ProbeReport:
+        from uup2iso.infrastructure.input import InputProber
+
+        return InputProber().probe(path)
+
+    def materialize(self, ctx: StageContext, report: ProbeReport) -> Path | None:
+        raise StageExecutionError(
+            "ESD→WIM 物化需要 wimlib 引擎层（尚未接线）", code=ErrorCode.INTERNAL_ERROR
+        )
+
+    def extract(self, ctx: StageContext, report: ProbeReport) -> Path | None:
+        raise StageExecutionError(
+            "ISO 解包需要 7-Zip 引擎层（尚未接线）", code=ErrorCode.INTERNAL_ERROR
+        )
+
+    def selfcheck(self, ctx: StageContext, report: ProbeReport | None) -> tuple[bool, str]:
+        config = ctx.config
+        entry = config.input.mode
+
+        if entry is EntryPoint.UUP_FOLDER:
+            return _selfcheck_uup(config)
+        if entry is EntryPoint.IMAGE:
+            return _selfcheck_image(config, report)
+        # 入口 A：素材由 Fetch 产出，Prepare 阶段只做轻量确认
+        return True, "入口 A：素材由 Fetch 产出，Prepare 无需自检"
+
+
+def _selfcheck_uup(config: TaskConfig) -> tuple[bool, str]:
+    path = Path(config.input.uup_folder.path) if config.input.uup_folder else Path()
+    if not path.is_dir():
+        return False, f"UUP 目录不存在：{path}"
+
+    evidence = uup_folder_evidence(path)
+    if evidence.esd_count == 0:
+        return False, f"未找到任何 .esd 组件：{path}"
+    if evidence.partial_count:
+        return False, f"存在 {evidence.partial_count} 个未完成下载残留（.part/.aria2），请重新下载"
+    if evidence.files_count == 0:
+        return False, f"目录为空：{path}"
+
+    detail = (
+        f"{evidence.files_count} 个文件（{evidence.esd_count} 个 .esd / "
+        f"{evidence.cab_count} 个 .cab / {evidence.appx_count} 个 appx，"
+        f"{evidence.total_bytes / 1e9:.2f} GB）"
+    )
+    if not evidence.manifest_present:
+        detail += "；无清单文件，按结构特征识别"
+    if not evidence.has_aggregate_metadata:
+        detail += "；缺 AggregatedMetadata.cab（转换器可能仍可运行）"
+    return True, detail
+
+
+def _selfcheck_image(config: TaskConfig, report: ProbeReport | None) -> tuple[bool, str]:
+    if config.input.image is None:
+        return False, "缺少 image 配置"
+    path = Path(config.input.image.path)
+    if not path.is_file():
+        return False, f"输入文件不存在：{path}"
+    if report is not None and report.type.value == "unknown":
+        return False, "无法识别输入类型"
+    return True, f"{path.name} 可读"
 
 
 def resolve_input_path(config: TaskConfig) -> Path:

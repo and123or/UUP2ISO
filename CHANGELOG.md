@@ -1,5 +1,57 @@
 # CHANGELOG
 
+## 0.1.32 — P0-1 无清单 UUP 识别 + P0-2 Prepare 自检换判据
+
+> 依据：`docs/计划/现状与下一阶段计划.md` §4.2 的 P0-1/P0-2；实测样本 `UUPs26300.9818`（无清单）。
+
+### P0-1 输入识别放宽（清单不再是必要条件）
+- **`is_uup_folder` 改为结构判定**：清单存在且含归档 → 命中（原逻辑保留）；
+  清单缺失时满足任一即命中：
+  1. 存在 `*AggregatedMetadata.cab`（UUP dump 标志）；
+  2. `.esd` ≥ **3** 且至少 1 个 `.cab`。
+  两条都不满足仍判「不是 UUP 目录」——宁可拒绝、不可猜。
+- 新增 `UupEvidence`（`uup_folder_evidence()`）：清单是否存在、AggregatedMetadata、esd/cab/msu/appx 计数、
+  总字节、`.part/.aria2` 残留数、`complete_enough`。
+- **UUP 目录内的 `.wim`/`.esd` 不再作为独立候选**：否则 `Edge.wim` 会让输入变成 `INPUT_AMBIGUOUS`；
+  只有目录里真存在 `.iso` 时才判歧义。
+- `probe.json` 新增扩展字段 `uup{manifestMissing, hasAggregatedMetadata, files, esd, cab, msu, appx,
+  totalBytes, partials}`；命中但无清单时记 `WARN uup_manifest_missing`，有残留记 `uup_partial_files`。
+
+### P0-2 Prepare 自检换判据 + 内置实现
+- 新增 `BuiltinPrepareOps`（`Prepare` 默认实现，不再要求外部注入）：
+  - `probe` 复用 `InputProber`；
+  - `selfcheck` 按入口分支：**UUP 入口改为结构自检**（≥1 个 `.esd`、无 `.part/.aria2` 残留、目录非空），
+    通过时返回统计（`2895 个文件（19 个 .esd / 76 个 .cab / 2797 个 appx，10.39 GB）`）；
+    空目录、无 `.esd`、有残留分别给出具体拒绝原因；
+  - `materialize`/`extract` **明确报「引擎层尚未接线」**（不静默成功，避免误以为已解包）。
+- `Prepare.describe()` 按入口分支：UUP 入口输出「结构自检 + 写 probe.json」，不再给假的 `image/install.wim` 命令。
+
+### 真实数据验证（`UUPs26300.9818`，只读）
+```
+识别：candidates = [uup_folder]（此前会因 Edge.wim 判成歧义）
+统计：2895 文件 / 19 .esd / 76 .cab / 2 .msu / 2797 appx / 10.39 GB / 0 残留 / 无清单
+自检：(True, "2895 个文件（19 个 .esd / 76 个 .cab / 2797 个 appx，10.39 GB）；无清单文件，按结构特征识别")
+probe.json：type=uup_folder，warnings=[editions_pending_convert, uup_manifest_missing]
+```
+
+### 测试
+- 新增/调整 24 项：无清单 + AggregatedMetadata 命中、无清单需 ≥3 ESD、单 ESD 不命中、
+  evidence 计数与残留、组件不成为候选、混入 ISO 仍歧义、probe 的 `uup` 块与告警、
+  Prepare 内置自检（通过/空目录/有残留）、内置 ops 拒绝未接线的物化与解包。
+- 全量：`pytest 786 passed`；`mypy 114 files`；`ruff`/`format` 全绿。
+
+### 变更（文档）
+- `输入` v0.3 → **v0.4**：§2.2 补「清单缺失时的判定」与「组件不是候选」；
+  §4 登记 `probe.json` 扩展字段 `uup`；`术语表 §1.2` 同步。
+- `现状与下一阶段计划` v1.1 → **v1.2**：P0-1/P0-2 标记为 ✅。
+
+### 已知限制
+- **`.msu`/`.msix` 未做完整性校验**：自检只看数量与残留，不校验内容（清单缺失时无从比对哈希）。
+- **无清单时无法判断构建号/语言/edition**：目前只能从文件名推断（如 `professional_zh-cn.esd`），
+  版本目录（P0-0）尚未实现，`probe.json` 的 build/language 字段仍为空。
+- `BuiltinPrepareOps.extract/materialize` 未实现：ISO 解包与 ESD→WIM 仍待引擎层。
+- 无清单目录的识别阈值（≥3 个 `.esd`）是经验值，未在大样本上统计过误判率。
+
 ## 0.1.31 — WP3 前哨：`Convert` 阶段编排（仅预演）+ 入口 B 计划修正
 
 > 依据：`docs/规范/映像引擎与转换规范.md`（路线 A）、`docs/记录/转换路线验证.md`（实测结论）、

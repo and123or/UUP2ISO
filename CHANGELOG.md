@@ -1,5 +1,55 @@
 # CHANGELOG
 
+## 0.1.28 — WP2-T4 `Fetch` 阶段处理器（接线到编排）
+
+> 依据：编排 §3、下载 §4/§5、`下载 §6` 目录结构。
+> 验收：`manifest → download → verify` 三子步骤可独立执行；`uup2iso run` 能走到下载；小范围真实下载通过。
+
+### 新增
+- **`application/pipeline/handlers/fetch.py`**：`FetchStageHandler`
+  - 子步骤严格按计划裁剪：`manifest`（拉清单 + 五项校验 + 落盘）/`download`（aria2c）/
+    `verify`（独立重算 SHA1，不信任 aria2c 退出码）；
+  - **分批下载**（`_BATCH_SIZE = 8`）：实测一次性把 97 个签名 URL 交给 aria2c 会被 CDN 集体 403；
+  - **两级失败兜底**：同清单退避 5 s 重试 → 仍失败才刷新清单（刷新对 403 无效，URL 相同）；
+  - `describe()` / `file_operations()` 供 `--dry-run`；`reusable_artifacts()` 报 `manifest.json`。
+- `application/fetch/manifest_service.py`：新增 `load_manifest()`（续跑读回清单）。
+- `Aria2Downloader.bind()`：组合根先建对象、后接日志/进度。
+- `cli_runner.build_handlers(config)`：入口 A 自动装配 Fetch（数据源 + aria2c 下载器）。
+- `scripts/smoke_fetch.py`：Fetch 阶段联调（`--names` 可只下指定文件）。
+
+### 真实联调
+```
+✅ 2 个文件 / 47.4KB   → 2/2 通过校验，0.1s
+✅ 2 个文件 / 14.2MB   → 2/2 通过校验，0.5s（AggregatedMetadata 3.0MB、DesktopDeployment 11.2MB）
+✅ Fetch 阶段（2 文件范围）：清单→下载→校验 全链路通过
+❌ 全量 97 文件 / 9.09 GB：被 CDN 限流（get.php 400、URL 403）
+```
+
+### 全量未通过的原因（已核实，非代码缺陷）
+| 现象 | 证据 |
+| --- | --- |
+| `get.php` 返回 400 | 连续多轮探测后出现，冷却后恢复 |
+| 97 个 URL 集体 403 | 同一批 URL 隔几分钟手工 aria2c 下载即成功（3/3、8/8） |
+| `--split=1/4/8`、批大小 3/4/5/8 均正常 | 排除参数与并发因素 |
+
+→ 结论：**按 IP 的瞬时限流**。批次级退避重试已实现；全量需在冷却后重跑
+（命令：`.venv\Scripts\python scripts\smoke_fetch.py --clean --build 26100.9725`）。
+
+### 测试
+- `test_fetch_handler.py`（8）：三子步骤顺序与清单落盘、下载失败后「退避→刷新」两级兜底、
+  独立校验发现缺文件、缺数据源/缺下载器/非入口 A 的明确报错、dry-run 命令与文件操作、
+  可复用产物、磁盘已有清单时不重复联网。
+- 全量：`pytest 735 passed`；`mypy 111 files`；`ruff`/`format` 全绿。
+
+### 变更（文档）
+- `下载` v0.5 → **v0.6**：§6 前补 Fetch 落地状态、分批策略与限流实测遗留；`术语表 §1.2` 同步。
+
+### 已知限制
+- **全量下载尚未在本机跑完**：受 CDN 限流影响，需冷却后重试；代码路径与小范围已验证。
+- `verify` 子步骤会重算**范围内全部文件**的 SHA1（9 GB 约需 30–60 s），暂未按块并行/缓存。
+- 批次大小与退避时长是经验值（8 / 5 s），未做成配置项。
+- `Fetch` 只在入口 A 装配；入口 B（UUP 文件夹）若目录已完整，按编排应记 `skipped` 而非走下载。
+
 ## 0.1.27 — WP2-T6/T7 aria2c 下载与校验（含 T3 决策修正）
 
 > 依据：下载 §4.1、§4.2、§5、§5.2、§5.4。

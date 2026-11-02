@@ -37,6 +37,7 @@ from uup2iso.application.startup import (
 from uup2iso.application.task_session import TaskSession
 from uup2iso.core.errors import ErrorCode, ExitCode, Uup2IsoError
 from uup2iso.core.models.checkpoint import ResumeDecision
+from uup2iso.core.models.enums import EntryPoint
 from uup2iso.core.models.pipeline import StageKind
 from uup2iso.infrastructure.storage.checkpoint_store import CheckpointStore
 from uup2iso.infrastructure.storage.config_loader import load_task_config
@@ -72,13 +73,50 @@ class RunOutcome:
     lines: tuple[str, ...] = ()
 
 
-def build_handlers() -> dict[StageKind, StageHandler]:
-    """当前已实现（或至少已接线）的阶段处理器。
+def build_handlers(config: object | None = None) -> dict[StageKind, StageHandler]:
+    """当前已接线（或已实现）的阶段处理器。
 
-    WS2/WS3 会往这里加 `Fetch`/`Convert`/`Slim`/… ；`Prepare` 的底层动作也还没接
-    （`PrepareOps` 属引擎层），所以现在只在 `--dry-run` 下可用。
+    * `Prepare` —— 处理器在，但底层 `PrepareOps` 仍缺（引擎层 WS3）；
+    * `Fetch` —— 仅入口 A 需要；会现场构造数据源与 aria2c 下载器；
+    * 其余阶段待 WS3。
     """
-    return {StageKind.PREPARE: PrepareStageHandler()}
+    handlers: dict[StageKind, StageHandler] = {StageKind.PREPARE: PrepareStageHandler()}
+    if (
+        config is not None
+        and getattr(getattr(config, "input", None), "mode", None) == EntryPoint.ONLINE
+    ):
+        handlers[StageKind.FETCH] = _make_fetch_handler(config)
+    return handlers
+
+
+def _make_fetch_handler(config: object) -> StageHandler:
+    """入口 A 的 Fetch：数据源 + aria2c 下载器（组合根职责）。"""
+    from uup2iso.application.pipeline.handlers import FetchStageHandler
+    from uup2iso.infrastructure.download import Aria2Downloader
+    from uup2iso.infrastructure.process.runner import ProcessRunner
+    from uup2iso.infrastructure.source import UupDumpSource
+    from uup2iso.infrastructure.tools.lock import load_lock
+    from uup2iso.infrastructure.tools.provider import ToolProvider
+
+    root = Path(__file__).resolve().parents[3]
+    source_cfg = getattr(config, "source", None)
+    base_url = str(getattr(source_cfg, "base_url", "https://uupdump.net/"))
+    lock = load_lock(root / "tools" / "tools.lock.json")
+
+    def _downloader(work_dir: Path) -> Aria2Downloader:
+        runner = ProcessRunner()
+        provider = ToolProvider(
+            tools_dir=root / "tools",
+            lock=lock.lock,
+            runner=runner,
+            search_path=False,
+            cache_path=root / "config" / "tool_caps.json",
+        )
+        return Aria2Downloader(provider=provider, runner=runner, work_dir=work_dir)
+
+    return FetchStageHandler(
+        source=UupDumpSource(base_url=base_url), downloader_factory=_downloader
+    )
 
 
 def execute_run(
@@ -138,7 +176,7 @@ def execute_run(
             config=config,
             task_id=task_id,
             report=report,
-            handlers=handlers or build_handlers(),
+            handlers=handlers or build_handlers(config),
             work_dir=work_dir,
         )
     finally:

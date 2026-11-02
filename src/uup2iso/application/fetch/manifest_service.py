@@ -33,6 +33,7 @@ from uup2iso.core.models.source import SourcePayload
 
 __all__ = [
     "OFFICIAL_HOST_SUFFIXES",
+    "load_manifest",
     "PARSER_VERSION",
     "ManifestError",
     "ManifestRequest",
@@ -214,6 +215,46 @@ def validate_manifest(manifest: Manifest, *, request: ManifestRequest | None = N
 
     if not manifest.required_files:
         raise ManifestError("清单里没有任何必需文件（下载 §3.2-5）")
+
+
+def load_manifest(path: Path) -> Manifest:
+    """读回清单（续跑用）；结构不符即 `MANIFEST_INVALID`。"""
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ManifestError(f"清单无法读取：{path}（{exc}）") from exc
+    try:
+        source = payload["source"]
+        files = tuple(
+            UupFile(
+                name=str(item["name"]),
+                size=int(item["size"]),
+                sha1=str(item["sha1"]).lower(),
+                url=str(item["url"]),
+                required=bool(item.get("required", True)),
+                category=item.get("category"),
+                sha256=item.get("sha256"),
+            )
+            for item in payload["files"]
+        )
+        return Manifest(
+            build=str(payload["build"]),
+            revision=str(payload.get("revision", "")),
+            language=str(payload["language"]),
+            edition=str(payload["edition"]),
+            files=files,
+            source=ManifestSource(
+                base_url=str(source.get("baseUrl", "")),
+                fetched_at=datetime.fromisoformat(str(source.get("fetchedAt"))),
+                from_cache=bool(source.get("fromCache", False)),
+            ),
+            schema_version=str(payload.get("schemaVersion", SCHEMA_VERSION)),
+            parser_version=str(payload.get("parserVersion", PARSER_VERSION)),
+            total_bytes=int(payload.get("totalBytes", 0)),
+            unknown_fields=tuple(str(item) for item in payload.get("unknownFields", [])),
+        )
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ManifestError(f"清单结构非法：{path}（{exc}）") from exc
 
 
 def manifest_to_json(manifest: Manifest) -> dict[str, object]:

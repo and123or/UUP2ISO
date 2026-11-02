@@ -114,6 +114,13 @@ class Aria2Downloader:
         self._progress = progress
         self._sleep = sleep or time.sleep
 
+    def bind(self, *, log: Any = None, progress: Any = None) -> None:
+        """运行期绑定日志与进度（组合根先建对象、后接上下文）。"""
+        if log is not None:
+            self._log = log
+        if progress is not None:
+            self._progress = progress
+
     @property
     def state_path(self) -> Path:
         return self._work_dir / "download" / "download.state.json"

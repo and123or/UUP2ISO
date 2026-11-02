@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from uup2iso.application.pipeline.handlers import (
     CleanupHook,
+    FetchStageHandler,
     PrepareOps,
     PrepareStageHandler,
     StageContext,
@@ -30,6 +31,7 @@ __all__ = [
     "CleanupHook",
     "DryRunReport",
     "DryRunStage",
+    "FetchStageHandler",
     "PipelineOrchestrator",
     "PipelineRun",
     "PrepareOps",

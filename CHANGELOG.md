@@ -1,5 +1,63 @@
 # CHANGELOG
 
+## 0.1.33 — P0-0 版本目录（GitHub 动态解析，代码零版本常量）
+
+> 依据：`docs/计划/现状与下一阶段计划.md` §5；用户要求「以 GitHub 为可信来源、动态获取、不得硬编码」。
+> 本轮**只做版本数据链路**，不改识别/转换行为（仅把结果写进 `probe.json`）。
+
+### 新增
+- **`infrastructure/version/catalog.py`**：`VersionCatalog` —— 三层来源（缓存 24h → GitHub → 随包快照），
+  `resolve(family)` / `family_of(major)` / `resolve_build(build)` / `refresh()`；
+  `parse_releases(text)` 只认**同一行**里 `NNH2` 与 5 位主版本号的配对（跨行不配、噪声数字排除、同族冲突取多数）。
+- **`core/models/version.py`**：`WindowsRelease`、`VersionResolution`（含 `source`/`stale`/`warnings`）。
+- **`application/input/version_hint.py`**：`build_from_directory()`（`UUPs26300.9818` → `26300.9818`）、
+  `language_from_names()`（`professional_zh-cn.esd` → `zh-cn`）、`resolve_input_version()`（构建号 + 反查版本族）。
+- **`src/uup2iso/data/windows_releases.json`**：随包快照（23H2/24H2/25H2/26H2），`pyproject` 的 package-data 已含 `data/*.json`。
+- **`scripts/refresh_windows_releases.py`**：从配置的 GitHub 源刷新快照（默认不写盘，`--write` 才覆盖）。
+- `Prepare` 写 `probe.json` 时附带 `version` 块（`文件 family/major/build/revision/language/source/stale`）。
+
+### 实测结论：GitHub 没有稳定的官方机器可读版本表
+| 候选 | 结果 |
+| --- | --- |
+| `MicrosoftDocs/windows-itpro-docs` | 404 |
+| `MoralCode/WindowsVersions` | 404 |
+| `uup-dump/api` | 404 |
+| `AshleyHow/WindowsOSBuild` | 存在，但是爬 HTML 的脚本仓库，无静态版本表 |
+
+→ 因此实现为「**可配置仓库 + 运行时发现路径 + 快照兜底**」，不做任何仓库名/路径硬编码；
+未配置或抓取失败时用快照并标 `stale=true` + `version_catalog_offline`。
+
+### 真实数据链路（无清单 UUP 目录）
+```
+目录名 UUPs26300.9818 → build=26300.9818, revision=9818
+catalog.family_of(26300) → 26H2
+文件名 professional_zh-cn.esd → language=zh-cn
+probe.json.version = {family:26H2, major:26300, build:26300.9818, revision:9818,
+                      language:zh-cn, source:"directory-name+snapshot", stale:true}
+```
+
+### 防回归
+- `test_no_version_constants_in_code`：用 AST 收集**真正参与运算的数字字面量**（排除 docstring/注释），
+  断言 `22631/26100/26200/26300` 不出现在 `src/**/*.py`。版本号只允许存在于 `data/*.json`。
+
+### 测试
+- `test_version_catalog.py`（23）：同行配对、跨行不配、多数取胜、噪声排除、多族解析、
+  快照查询/反查/revision 拆分、未登记 major 告警、快照缺失与损坏降级、
+  GitHub 解析与 `github:<repo>@<sha>` 来源记录、缓存命中不重复请求、缓存过期重取、
+  404/不可解析回退快照、目录名解析、语言解析、端到端推断、无 build 时告警、AST 常量断言（4 个版本号）。
+- 全量：`pytest 814 passed`；`mypy 119 files`；`ruff`/`format` 全绿。
+
+### 变更（文档）
+- `输入` v0.4 → **v0.5**：§4 登记 `probe.json.version` 扩展块。
+- `现状与下一阶段计划` v1.2 → **v1.3**：§5.5 补落地状态、实测结论与数据链路；P0-0 标 ✅；术语表同步。
+
+### 已知限制
+- **GitHub 侧仍无稳定源**：默认只能用快照；要"真正动态"必须由用户提供可解析的仓库路径（`--repo/--path`）。
+- **快照尚未被 GitHub 数据校准**（`source.verified=false`）：26H2=26300 目前来自用户给定事实。
+- 解析是**文本启发式**（同行配对）：表格跨度大、跨行书写会解析不到（记为 `version_source_unparsed`）。
+- `edition` 仍为空：它来自 `wimlib info`（转换后才知道），不由版本目录推断。
+- 版本目录尚未接入无人值守映射与 ISO 卷标（等 P3 阶段）。
+
 ## 0.1.32 — P0-1 无清单 UUP 识别 + P0-2 Prepare 自检换判据
 
 > 依据：`docs/计划/现状与下一阶段计划.md` §4.2 的 P0-1/P0-2；实测样本 `UUPs26300.9818`（无清单）。

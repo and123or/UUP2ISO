@@ -20,6 +20,7 @@ from uup2iso.core.errors import ErrorCode, InputError, StageExecutionError
 from uup2iso.core.models.config import TaskConfig
 from uup2iso.core.models.enums import EntryPoint
 from uup2iso.core.models.pipeline import StageKind
+from uup2iso.core.models.version import VersionResolution
 from uup2iso.infrastructure.input.probe import ProbeReport
 from uup2iso.infrastructure.input.sniff import uup_folder_evidence
 
@@ -57,6 +58,8 @@ class PrepareOutcome:
     materialized: Path | None = None
     extracted: Path | None = None
     type: str = ""
+    version: VersionResolution | None = None
+    """`VersionResolution`（P0-0）：构建号/版本族/语言判定结果。"""
 
 
 class PrepareStageHandler:
@@ -84,9 +87,15 @@ class PrepareStageHandler:
         report: ProbeReport | None = None
         probe_json: Path | None = None
 
+        version = self._resolve_version(source)
+
         if "probe" in executed:
             report = ops.probe(source)
-            probe_json = write_probe_json(work_dir, report)
+            probe_json = write_probe_json(
+                work_dir,
+                report,
+                extra={"version": version.to_dict()} if version is not None else None,
+            )
 
         if report is None:
             # 计划里没有 probe 子步骤时，后续动作无输入可用——属实现缺陷，不是用户问题
@@ -116,7 +125,10 @@ class PrepareStageHandler:
             materialized=materialized,
             extracted=extracted,
             type=report.type.value if report else "",
+            version=version,
         )
+        if version is not None:
+            ctx.extras["version"] = version
 
     # -- dry-run 支持 -----------------------------------------------------
 
@@ -175,6 +187,19 @@ class PrepareStageHandler:
         return tuple(item for item in candidates if (work_dir / item).is_file())
 
     # -- 内部 -------------------------------------------------------------
+
+    def _resolve_version(self, source: Path) -> VersionResolution | None:
+        """推断构建号与版本族（P0-0）；失败不影响主流程，只记告警。"""
+        try:
+            from uup2iso.application.input import resolve_input_version
+            from uup2iso.infrastructure.version import VersionCatalog
+
+            names: tuple[str, ...] = ()
+            if source.is_dir():
+                names = tuple(item.name for item in source.iterdir() if item.is_file())
+            return resolve_input_version(path=source, catalog=VersionCatalog(), names=names)
+        except (OSError, ValueError):
+            return None
 
     def _require_ops(self) -> PrepareOps:
         if self._ops is None:
@@ -270,11 +295,15 @@ def resolve_input_path(config: TaskConfig) -> Path:
     )
 
 
-def write_probe_json(work_dir: Path, report: ProbeReport) -> Path:
+def write_probe_json(
+    work_dir: Path, report: ProbeReport, *, extra: dict[str, object] | None = None
+) -> Path:
     """原子写 `input\\probe.json`（只读诊断产物，不参与输出校验）。"""
     target = work_dir / _PROBE_RELATIVE
     target.parent.mkdir(parents=True, exist_ok=True)
     payload = report.to_probe_json()
+    if extra:
+        payload.update(extra)
     tmp = target.with_suffix(".json.tmp")
     tmp.write_text(
         json.dumps(payload, indent=2, ensure_ascii=False) + "\n",

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "uup2iso"
-version = "0.1.32"
+version = "0.1.33"
 description = "UUP -> ISO 构建与精简工具（Windows 10/11 x64，PySide6 + PyInstaller）"
 readme = "README.md"
 requires-python = ">=3.12,<3.14"
@@ -58,7 +58,7 @@ where = ["src"]
 include = ["uup2iso*"]
 
 [tool.setuptools.package-data]
-uup2iso = ["schemas/*.json"]
+uup2iso = ["schemas/*.json", "data/*.json"]
 
 # ---------------------------------------------------------------------------
 # 工具链（全部由 .venv 内的解释器执行，见 docs/治理/版本与变更管理.md §2）

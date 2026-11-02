@@ -1,0 +1,31 @@
+{
+  "schemaVersion": "1.0",
+  "updatedAt": "2026-11-02T20:30:00+08:00",
+  "source": {
+    "kind": "snapshot",
+    "verified": false,
+    "note": "GitHub 目前没有稳定的机器可读版本表（实测多个候选仓库 404、AshleyHow/WindowsOSBuild 为爬虫脚本）。本文件是随包数据，可用 scripts/refresh_windows_releases.py 从配置的 GitHub 源刷新后覆盖；代码中不出现任何版本号常量。"
+  },
+  "releases": [
+    {
+      "family": "23H2",
+      "major": 22631,
+      "channel": "Retail"
+    },
+    {
+      "family": "24H2",
+      "major": 26100,
+      "channel": "Retail"
+    },
+    {
+      "family": "25H2",
+      "major": 26200,
+      "channel": "Retail"
+    },
+    {
+      "family": "26H2",
+      "major": 26300,
+      "channel": "Insider"
+    }
+  ]
+}

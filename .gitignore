@@ -60,3 +60,6 @@ desktop.ini
 
 # NuGet
 *.nupkg
+
+# 本地 UUP 数据集（用户自备，体积大，不入库）
+UUPs*/

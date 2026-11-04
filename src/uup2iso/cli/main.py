@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 import json
+import warnings
 from collections.abc import Callable
 from pathlib import Path
 from typing import Annotated
@@ -28,6 +29,10 @@ from uup2iso.application.startup import (
     acquire_instance,
     release_instance,
 )
+
+# Ctrl+C 中断子进程时，asyncio 的 proactor 传输会报 "unclosed transport" 噪音；
+# 它不是功能错误，只是清理顺序问题（已记入 CHANGELOG 已知限制）。
+warnings.filterwarnings("ignore", category=ResourceWarning)
 
 app = typer.Typer(
     name="uup2iso",

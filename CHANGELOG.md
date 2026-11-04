@@ -1,5 +1,44 @@
 # CHANGELOG
 
+## 0.1.38 — 修「长任务黑屏」：控制台实时镜像 + 失败原因可见
+
+> 触发：用户用管理员终端跑 `run`，**转换器其实在跑**（日志里有 `Running UUP Converter v128m`、
+> `Checking LCU MumX version`、`AutoStart 3`），但控制台**没有任何输出**，用户误判卡死并 Ctrl+C。
+
+### 新增
+- **控制台镜像（`LogSink.mirror`）**：CLI 把关键日志行**实时**打到 stderr：
+  阶段事件（`stage_started/finished/skipped/retry`、`task_started/finished/cancelled`）、
+  **转换器输出**（`event=converter`，逐条组件名）、以及所有 `WARN/ERROR`。
+  其余 INFO 只落盘（避免刷屏）；镜像回调抛错不影响落盘。
+- **计划先打印**：任务开始前把「入口/起点/各阶段 run-skip」打到 stderr，不再等结束才一次性输出。
+- **失败原因可见**：阶段失败时镜像显示 `（原因码）`；结束时追加 `失败原因：<异常>`，JSON 也带 `error`。
+- **抑制 Ctrl+C 噪音**：CLI 过滤 `ResourceWarning`（asyncio proactor "unclosed transport"）。
+
+### 实测（非管理员重跑，验证提示与镜像）
+```
+任务 654843e0：入口 uupFolder，起点 Convert
+Prepare    run (implied)  substeps=probe,selfcheck
+Fetch      skipped  reason=input_satisfied
+Convert    run  substeps=config,cab,aggregate,skeleton,bootwim
+...
+任务开始
+[Prepare] 阶段开始
+[Prepare] 阶段完成
+[Fetch] 阶段跳过（input_satisfied）
+[Convert] 阶段开始
+```
+
+### 测试
+- `test_logging_sink.py`（20）：新增镜像 5 项（阶段事件可见、转换器输出可见、噪音不刷屏、
+  可卸载、回调抛错不影响落盘）。
+- 全量：`pytest 859 passed`；`mypy 121 files`；`ruff`/`format` 全绿。
+
+### 已知限制
+- 镜像只输出**关键行**：转换器若长时间无输出（单个大组件聚合），控制台仍会安静一阵，
+  此时看 `logs\run_*.log` 尾部即可判断是否在跑。
+- 没有 TUI 进度条；百分比进度要等 GUI 阶段接 `ProgressHub`。
+- `ResourceWarning` 是**过滤**而非根治：Ctrl+C 时子进程管道仍未优雅关闭（不影响功能）。
+
 ## 0.1.37 — 仅映像模式放宽产物校验（修 0.1.36 之后仍会失败的一处）
 
 > 背景：用户按 0.1.36 修复后重跑前，复盘日志发现 Convert 在 2.5 s 内以 `INPUT_DAMAGED` 失败——

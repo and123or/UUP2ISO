@@ -125,6 +125,22 @@ class _Line:
     fields: dict[str, object] = field(default_factory=dict)
 
 
+_MIRROR_EVENTS: frozenset[str] = frozenset(
+    {
+        "task_started",
+        "task_finished",
+        "task_cancelled",
+        "stage_started",
+        "stage_finished",
+        "stage_skipped",
+        "stage_retry",
+        "output_committed",
+        "version_resolved",
+    }
+)
+"""会同步到控制台的事件（其余只落盘，避免刷屏）。"""
+
+
 class LogSink:
     """运行日志 + 审计日志的写入端。
 
@@ -142,10 +158,12 @@ class LogSink:
         level: str = INFO,
         level_source: str = "",
         clock: Callable[[], datetime] | None = None,
+        mirror: Callable[[str], None] | None = None,
     ) -> None:
         self._paths = paths
         self._level = level
         self._level_source = level_source
+        self._mirror = mirror
         self._clock = clock or datetime.now
         self._sampler = RepetitionSampler()
         self._run_handle = paths.run.open("a", encoding="utf-8", newline="\n")
@@ -165,6 +183,7 @@ class LogSink:
         started_at: datetime | None = None,
         frozen: bool | None = None,
         clock: Callable[[], datetime] | None = None,
+        mirror: Callable[[str], None] | None = None,
     ) -> LogSink:
         """按日志 §2.1 建两个文件；目录不可写时立即报错（不静默回退）。"""
         import sys
@@ -183,7 +202,7 @@ class LogSink:
             ) from exc
 
         paths = _allocate_paths(log_dir, started_at or datetime.now())
-        return cls(paths=paths, level=level, level_source=source, clock=clock)
+        return cls(paths=paths, level=level, level_source=source, clock=clock, mirror=mirror)
 
     # -- 属性 -------------------------------------------------------------
 
@@ -198,6 +217,10 @@ class LogSink:
     @property
     def level_source(self) -> str:
         return self._level_source
+
+    def set_mirror(self, mirror: Callable[[str], None] | None) -> None:
+        """运行期挂上控制台镜像（CLI 用；GUI 不挂）。"""
+        self._mirror = mirror
 
     # -- 写日志 -----------------------------------------------------------
 
@@ -246,11 +269,13 @@ class LogSink:
         # 采样只针对低级别刷屏；WARN/ERROR 一条都不能丢
         if level in (WARN, ERROR):
             self._write_run(line, sampled_total=None)
+            self._mirror_line(line)
             return
 
         key = _sample_key(logger_name, message)
         for item, total in self._sampler.feed(key, line):
             self._write_run(item, sampled_total=total)
+            self._mirror_line(item)
 
     def exception(
         self,
@@ -388,6 +413,25 @@ class LogSink:
         self.close()
 
     # -- 内部 -------------------------------------------------------------
+
+    def _mirror_line(self, line: _Line) -> None:
+        """把关键行同步到控制台（日志 §9 的"控制台镜像"，不改变落盘格式）。"""
+        mirror = self._mirror
+        if mirror is None:
+            return
+        event = str(line.fields.get("event", ""))
+        important = line.level in (WARN, ERROR) or event in _MIRROR_EVENTS or event == "converter"
+        message = line.message.strip()
+        if not important or not message:
+            return
+        detail = str(line.fields.get("reason") or line.fields.get("result") or "").strip()
+        if detail and detail not in ("succeeded", "skipped"):
+            message = f"{message}（{detail}）"
+        prefix = f"[{line.stage}] " if line.stage else ""
+        try:
+            mirror(f"{prefix}{message}")
+        except Exception:  # noqa: BLE001 - 控制台写失败不得影响主流程
+            return
 
     def _write_run(self, line: _Line, *, sampled_total: int | None) -> None:
         fields: Mapping[str, object] = dict(line.fields)

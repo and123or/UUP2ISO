@@ -228,11 +228,19 @@ def _run_with_session(
     work_dir: Path | None,
 ) -> RunOutcome:
     sink = report.sink
+    # 控制台镜像：阶段事件与转换器输出实时可见（否则长任务看起来像卡死）
+    import sys as _sys
+
+    sink.set_mirror(lambda text: print(text, file=_sys.stderr, flush=True))
     resolved_work = work_dir or _default_work_dir(task_id)
     plan = plan_pipeline(config)  # type: ignore[arg-type]
 
     lines = [f"任务 {task_id}：入口 {plan.entry}，起点 {plan.start_stage.value}"]
     lines.extend(plan.summary_lines())
+    # 计划先打出来（否则长任务执行期间控制台一片空白）
+    if not options.dry_run:
+        for line in lines:
+            print(line, file=_sys.stderr, flush=True)
 
     # 3) 续跑判定
     session = TaskSession(
@@ -372,6 +380,9 @@ def _run_with_session(
                 lines=tuple(lines) + (message,),
             )
     lines.append(f"结果：{'成功' if run.succeeded else '失败'}（{run.exit_code}）")
+    for outcome in run.outcomes:
+        if outcome.status == "failed" and outcome.error is not None:
+            lines.append(f"失败原因：{outcome.error}")
     return RunOutcome(
         exit_code=run.exit_code,
         payload={
@@ -380,6 +391,7 @@ def _run_with_session(
             "stages": [
                 {"stage": outcome.stage.value, "status": outcome.status} for outcome in run.outcomes
             ],
+            **({"error": str(run.outcomes[-1].error)} if not run.succeeded else {}),
             **resume_payload,
         },
         lines=tuple(lines),

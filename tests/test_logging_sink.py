@@ -256,3 +256,76 @@ def test_sensitive_values_are_redacted_before_write(tmp_path: Path) -> None:
     assert "hunter2" not in text
     assert "ABCDE-12345" not in text
     assert "XXXXX-XXXXX-XXXXX-XXXXX-KLMNO" in text
+
+
+# --- 控制台镜像（0.1.38）----------------------------------------------------
+
+
+def _sink(tmp_path: Path, mirrored: list[str]) -> object:
+    from uup2iso.infrastructure.logging.sink import LogSink
+
+    return LogSink.open(
+        tmp_path / "logs",
+        entry="cli",
+        level="INFO",
+        frozen=False,
+        mirror=mirrored.append,
+    )
+
+
+def test_mirror_receives_stage_events(tmp_path: Path) -> None:
+    mirrored: list[str] = []
+    sink = _sink(tmp_path, mirrored)
+
+    sink.info("app.pipeline", "阶段开始", stage="Convert", event="stage_started")
+    sink.close()
+
+    assert any("阶段开始" in line and "[Convert]" in line for line in mirrored)
+
+
+def test_mirror_receives_converter_output(tmp_path: Path) -> None:
+    """转换器输出必须实时可见，否则长任务看起来像卡死。"""
+    mirrored: list[str] = []
+    sink = _sink(tmp_path, mirrored)
+
+    sink.info(
+        "app.convert", "=== Preparing Reference ESDs . . .", stage="Convert", event="converter"
+    )
+    sink.close()
+
+    assert any("Preparing Reference ESDs" in line for line in mirrored)
+
+
+def test_mirror_skips_noise(tmp_path: Path) -> None:
+    mirrored: list[str] = []
+    sink = _sink(tmp_path, mirrored)
+
+    sink.info("app.cli", "内部细节", event="cache_hit")
+    sink.close()
+
+    assert mirrored == [], "非关键事件不该刷屏"
+
+
+def test_mirror_can_be_detached(tmp_path: Path) -> None:
+    mirrored: list[str] = []
+    sink = _sink(tmp_path, mirrored)
+    sink.set_mirror(None)  # type: ignore[attr-defined]
+
+    sink.info("app.pipeline", "阶段开始", stage="Convert", event="stage_started")
+    sink.close()
+
+    assert mirrored == []
+
+
+def test_mirror_never_breaks_logging(tmp_path: Path) -> None:
+    """镜像回调抛错也不得影响落盘。"""
+    from uup2iso.infrastructure.logging.sink import LogSink
+
+    def boom(_text: str) -> None:
+        raise RuntimeError("console gone")
+
+    sink = LogSink.open(tmp_path / "logs", entry="cli", level="INFO", frozen=False, mirror=boom)
+    sink.info("app.pipeline", "阶段开始", stage="Convert", event="stage_started")
+    sink.close()
+
+    assert sink.paths.run.is_file()

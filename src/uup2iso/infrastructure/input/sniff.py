@@ -193,9 +193,10 @@ def _classify_uup_folder(path: Path) -> UupEvidence:
     if not has_flat_archives and nested.is_dir():
         search_dirs.append(nested)
 
-    files: list[Path] = []
-    for directory in search_dirs:
-        files.extend(item for item in directory.iterdir() if item.is_file())
+    # 递归统计：转换器会把 appx 收进 `Apps/<分类>/`，只数一层会漏掉几千个文件
+    files: list[Path] = [
+        item for directory in search_dirs for item in directory.rglob("*") if item.is_file()
+    ]
 
     esds = [item for item in files if item.suffix.lower() == ".esd"]
     cabs = [item for item in files if item.suffix.lower() == ".cab"]

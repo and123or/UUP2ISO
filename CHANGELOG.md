@@ -1,5 +1,22 @@
 # CHANGELOG
 
+## 0.1.44 — 修 UUP 目录统计漏计（Apps 子目录）
+
+> 现象：同一份数据，`Prepare` 输出 `99 个文件`，实际是 2947 个。
+> 原因：转换器把 2848 个 appx 收进了 `UUPs26300.9818/Apps/<分类>/`，
+> 而 `uup_folder_evidence` 只统计**根目录直接子文件**。
+
+### 修复
+- `_classify_uup_folder` 改为**递归统计**（`rglob`）：
+  `files_count` / `total_bytes` / `appx_count` 现在覆盖 `Apps/` 等子目录。
+- 实测：`2947 文件 / 2797 appx / 10.39 GB`，耗时 0.21 s（可接受）。
+
+### 测试
+- `test_input_sniff.py`（23）：新增「appx 在 `Apps/<分类>/` 时也要计入」。
+
+### 已知限制
+- 递归统计对超大目录（>10 万文件）会变慢；当前样本 2947 文件 0.21 s，暂不优化。
+
 ## 0.1.43 — 挂载残留防护 + ISO 输出（P2-2）
 
 > 两件事：① 用户要求的 `D:/MountUUP` 类残留防护；② 把 ISO 输出做完（`oscdimg` 已就位）。

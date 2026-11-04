@@ -223,3 +223,20 @@ def test_uup_with_mixed_iso_is_still_ambiguous(tmp_path: Path) -> None:
 
 def test_missing_path_has_no_candidates(tmp_path: Path) -> None:
     assert sniff_path(tmp_path / "nope.iso") == ()
+
+
+def test_evidence_counts_nested_apps_dir(tmp_path: Path) -> None:
+    """转换器会把 appx 收进 `Apps/<分类>/`：统计必须递归，不能只数根目录。"""
+    folder = tmp_path / "uup"
+    folder.mkdir()
+    (folder / "AggregatedMetadata.cab").write_bytes(b"CAB")
+    (folder / "a.esd").write_bytes(b"ESD")
+    apps = folder / "Apps" / "Contoso.App_123"
+    apps.mkdir(parents=True)
+    for index in range(3):
+        (apps / f"p{index}.msix").write_bytes(b"MSIX")
+
+    evidence = uup_folder_evidence(folder)
+
+    assert evidence.files_count == 5, "根目录 2 个 + Apps 子目录 3 个"
+    assert evidence.appx_count == 3

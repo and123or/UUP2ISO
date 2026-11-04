@@ -22,6 +22,7 @@ import typer
 
 from uup2iso import __version__
 from uup2iso.application.cli_runner import RunOptions, execute_run
+from uup2iso.application.elevation import is_admin, relaunch_elevated
 from uup2iso.application.startup import (
     ALREADY_RUNNING_PAYLOAD,
     StartupConflictError,
@@ -91,6 +92,32 @@ def _root(ctx: typer.Context) -> None:
         ctx.call_on_close(release_instance_with(session))
 
 
+def ensure_admin(*, dry_run: bool) -> int | None:
+    """需要管理员时提权重启并等待；返回子进程退出码（``None`` 表示继续当前进程）。
+
+    * `--dry-run` 不需要管理员（只预览，不调用任何外部工具）；
+    * `UUP2ISO_NO_ELEVATE=1` 可跳过（CI/调试用，不写入文档级接口）；
+    * 已是管理员 → 直接继续。
+    """
+    import os
+
+    if dry_run or os.environ.get("UUP2ISO_NO_ELEVATE") == "1":
+        return None
+    if is_admin():
+        return None
+
+    typer.echo("需要管理员权限（转换器会调用 DISM），正在请求 UAC 授权…", err=True)
+    typer.echo("授权后会在新的管理员窗口继续执行，本窗口等待其结束后返回退出码。", err=True)
+    try:
+        return relaunch_elevated(
+            on_wait=lambda: typer.echo("…仍在管理员窗口中运行（进度请看新窗口）", err=True)
+        )
+    except RuntimeError as exc:
+        typer.echo(f"无法自动提权：{exc}", err=True)
+        typer.echo("请手动以管理员身份打开终端后重新运行本命令。", err=True)
+        return 4  # 参数/依赖错误（环境不具备）
+
+
 @app.command()
 def version() -> None:
     """打印程序版本号。"""
@@ -125,6 +152,11 @@ def run(
     输出契约（T6）：**stdout = 单行 JSON**（`ok` / `code` / `task` / `stages` …），
     **stderr = 人读文本**。这样 CI 直接 `json.loads(stdout)` 即可，不需要额外开关。
     """
+    # 非管理员时提权重启自己（转换器要调 DISM）；dry-run 不需要
+    elevated_code = ensure_admin(dry_run=dry_run)
+    if elevated_code is not None:
+        raise typer.Exit(code=elevated_code)
+
     outcome = execute_run(
         RunOptions(config_path=config, dry_run=dry_run, resume=resume, debug=debug)
     )

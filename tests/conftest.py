@@ -7,6 +7,11 @@
 from __future__ import annotations
 
 import os
+
+# 测试进程不得真弹 UAC：默认关掉自动提权（真实提权有专门的 monkeypatch 用例）
+os.environ.setdefault("UUP2ISO_NO_ELEVATE", "1")
+
+import os
 import sys
 from pathlib import Path
 

@@ -1,5 +1,39 @@
 # CHANGELOG
 
+## 0.1.39 — 自动 UAC 提权（非管理员不再直接失败）
+
+> 用户提问：普通权限明明能弹 UAC，为什么要失败、能不能提权后继续？
+> 结论：Windows 不允许**原地**提升当前进程权限，但可以**提权重启自己并等待**——本轮就这么做。
+
+### 新增
+- **`application/elevation.py`**
+  - `is_admin()`：`IsUserAnAdmin()`。
+  - `relaunch_elevated(argv, cwd, on_wait)`：用 `ShellExecuteExW(verb="runas")` 重启自身，
+    **分片等待**（每 60 s 回调一次提示）+ `GetExitCodeProcess` **原样返回子进程退出码**；
+    用户在 UAC 点「否」→ 返回 `ELEVATION_CANCELLED`（退出码 3）。
+  - `_command_for()`：console-script/打包 exe 直接启动自己；源码运行则 `python -m uup2iso.cli.main`。
+- **CLI `run` 自动提权**：非管理员且非 `--dry-run` → 提示后提权重启，父进程等待并透传退出码；
+  `version` 与 `--dry-run` **不提权**；`UUP2ISO_NO_ELEVATE=1` 可跳过（CI/调试用）。
+- 父窗口等待期间每 60 s 打印「…仍在管理员窗口中运行」，避免再次被误判卡死。
+
+### 与「让转换器自己提权」的区别
+| 方案 | 输出可见 | 退出码 | 用户体验 |
+| --- | --- | --- | --- |
+| 转换器自提权（`start ... -verb runas`） | ❌ 在我们看不见的新窗口 | ❌ 父进程拿到 0，误判成功 | 像卡死/假成功 |
+| **本轮：提权重启自己** | ✅ 新窗口是我们的 CLI，有实时镜像 | ✅ 完整透传 | 一次 UAC，之后一切照旧 |
+
+### 测试
+- `test_elevation.py`（12）：`_command_for` 两条启动路径与含空格路径、`dry-run`/环境变量/管理员三种不提权、
+  非管理员透传退出码、UAC 取消→3、提权失败→4、`run` 先提权不执行、`version` 不提权。
+- `tests/conftest.py` 默认设 `UUP2ISO_NO_ELEVATE=1`，**测试进程永不真弹 UAC**。
+- 全量：`pytest 871 passed`；`mypy 122 files`；`ruff`/`format` 全绿。
+
+### 已知限制
+- 提权后是**新控制台窗口**：父窗口只等待并透传码；要实时看进度请看新窗口（或看 `logs\run_*.log`）。
+- GUI 尚未接自动提权（WP9 会复用同一 `relaunch_elevated`）。
+- `run` 无条件要求管理员（即使入口 C 只做只读处理），偏保守；后续可按阶段裁剪。
+- 打包成单文件 exe 后 `_command_for` 走 exe 分支，**需在真实打包产物上再验一次**。
+
 ## 0.1.38 — 修「长任务黑屏」：控制台实时镜像 + 失败原因可见
 
 > 触发：用户用管理员终端跑 `run`，**转换器其实在跑**（日志里有 `Running UUP Converter v128m`、

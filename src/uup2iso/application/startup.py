@@ -14,10 +14,12 @@ GUI 与 CLI 共用这一条序列，区别只在「冲突时做什么」：GUI �
 
 from __future__ import annotations
 
+import platform
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from uup2iso import __version__
 from uup2iso.infrastructure.logging import (
     AuditWriteError,
     LogSink,
@@ -172,6 +174,10 @@ def bootstrap(
         "程序启动",
         event="startup",
         entry=entry,
+        version=__version__,
+        python=platform.python_version(),
+        os=platform.platform(),
+        arch=platform.machine() or "unknown",
         log_level=sink.level,
         log_level_source=sink.level_source,
         log=sink.paths.run.name,

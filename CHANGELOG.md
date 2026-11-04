@@ -1,5 +1,27 @@
 # CHANGELOG
 
+## 0.1.54 — 启动日志记录软件版本与环境
+
+> 用户要求：日志里带上软件版本，方便排查问题。
+
+### 变更
+- 启动行（每个运行日志第一条）新增四个字段：
+  `version`（软件版本）、`python`（解释器版本）、`os`（系统版本含 build）、`arch`（架构）。
+- 只在启动行记一次，不逐行重复；值不含空格，保证 `key=value` 可解析。
+
+实际效果：
+```
+app.startup: 程序启动 | event=startup entry=cli version=0.1.54 python=3.13.14
+os=Windows-11-10.0.22631-SP0 arch=AMD64 log_level=DEBUG log_level_source=--debug log=run_20261105-...
+```
+
+### 测试
+- `test_startup.py`（10）：新增「启动行含 version/python/os/arch」。
+- 全量：`pytest 全绿`；`mypy 125 files`；`ruff`/`format` 全绿。
+
+### 变更（文档）
+- `日志` v0.8 → **v0.9**：新增 §5.0 启动行字段规范（含"为什么必须"）。
+
 ## 0.1.53 — 残留隔离（D4）：Convert 归档上一份配置的产物
 
 > D3 让不同配置落到不同目录；但**同一配置反复跑**（失败重试）时，`convert/` 里的

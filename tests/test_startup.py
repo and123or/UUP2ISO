@@ -164,3 +164,18 @@ def test_adopt_preset_session(tmp_path: Path) -> None:
 
 def test_default_log_dir_points_to_logs() -> None:
     assert default_log_dir().name == "logs"
+
+
+def test_startup_line_records_version_and_env(tmp_path: Path) -> None:
+    """日志首行必须带软件版本（+ Python/OS/架构），方便排查。"""
+    from uup2iso import __version__
+
+    report = bootstrap(entry="cli", log_dir=tmp_path, debug=True)
+    report.sink.close()
+
+    text = (tmp_path / report.sink.paths.run.name).read_text(encoding="utf-8")
+    startup = next(line for line in text.splitlines() if "event=startup" in line)
+    assert f"version={__version__}" in startup
+    assert "python=" in startup
+    assert "os=" in startup
+    assert "arch=" in startup

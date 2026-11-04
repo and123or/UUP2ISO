@@ -1,5 +1,34 @@
 # CHANGELOG
 
+## 0.1.53 — 残留隔离（D4）：Convert 归档上一份配置的产物
+
+> D3 让不同配置落到不同目录；但**同一配置反复跑**（失败重试）时，`convert/` 里的
+> `install.wim` / `*.ISO` / `ISOFOLDER` 仍会被转换器复用，可能与本次混合。
+
+### 变更
+- Convert 在 `aggregate` 之前写标记 `convert/.uup2iso-source.json`（配置指纹 + 时间）。
+- 开始时读标记：
+  - 指纹**相同** → 原地保留（同配置重跑，交给转换器覆盖）；
+  - 指纹**不同/缺失**（旧版本或无标记）→ 把 `install.wim`、`install.esd`、`*.iso`、`ISOFOLDER`
+    **同卷 rename** 到 `convert/_prev_<旧指纹8位>/`（不复制，几 GB 也瞬时）；
+  - 归档动作记 `convert_prev_archived`（含数量与目录），失败记 `convert_prev_archive_failed`。
+
+### 效果
+| 场景 | 之前 | 现在 |
+|---|---|---|
+| 同配置失败重跑 | 转换器复用残留 wim | 保留（合理），由转换器覆盖 |
+| **改配置后重跑** | 与旧 wim/ISO 混放（实测 4.3 GB + 8.9 GB 同目录） | **旧产物自动挪进 `_prev_*/`** |
+| 无标记的旧工作区 | 无从判断 | 视为"未知来源"归档 |
+
+### 测试
+- `test_convert_handler.py`（30）：新增「指纹不同 → 归档并更新标记」「指纹相同 → 原地保留」。
+- 全量：`pytest 全绿`；`mypy 125 files`；`ruff`/`format` 全绿。
+
+### 已知限制
+- 归档只做一层（`_prev_<指纹>`），同名文件加时间戳后缀；不自动清理归档目录，
+  由用户或后续清理策略处理（避免误删可能需要复用的中间产物）。
+- 标记文件位于 `convert/` 内，会被 `unpack_converter` 之外的逻辑看到——不影响转换器。
+
 ## 0.1.52 — 目录隔离（D3）：work 按配置指纹分层
 
 > 实测：同一 `task_id`、不同配置（`integrate=false` 与 `true`）的产物混放在

@@ -516,3 +516,60 @@ def test_sink_drops_progress_field(tmp_path: Path) -> None:
     assert "complete" not in text
     assert "普通行" in text
     assert any("37% complete" in line for line in mirrored)
+
+
+# --- 残留归档（D4）----------------------------------------------------------
+
+
+def test_previous_outputs_archived_when_fingerprint_differs(tmp_path: Path) -> None:
+    """上一次配置留下的 install.wim/ISO 必须被挪进 _prev_<指纹>/，不能与本次混放。"""
+    from uup2iso.application.pipeline.handlers.convert import (
+        _SOURCE_MARKER,
+        _read_marker,
+        _write_marker,
+    )
+
+    config = make_config(tmp_path)
+    (tmp_path / "uups").mkdir()
+    paths = converter_paths(tmp_path / "tools", tmp_path / "work")
+    paths.root.mkdir(parents=True)
+    paths.entry.write_text("rem converter", encoding="utf-8")
+    paths.bin_dir.mkdir()
+
+    (paths.root / "install.wim").write_bytes(b"OLD-WIM")
+    (paths.root / "26300.1.1.x.iso").write_bytes(b"OLD-ISO")
+    _write_marker(paths.root / _SOURCE_MARKER, "oldfingerprint")
+
+    handler = ConvertStageHandler(tools_dir=tmp_path / "tools", admin_check=lambda: True)
+    ctx = make_ctx(tmp_path, config)
+    handler._archive_previous_outputs(ctx, paths)
+
+    assert not (paths.root / "install.wim").exists(), "旧 wim 应被移走"
+    archived = list((paths.root / "_prev_oldfinge").glob("*"))
+    assert {item.name for item in archived} >= {"install.wim", "26300.1.1.x.iso"}
+    assert _read_marker(paths.root / _SOURCE_MARKER) != "oldfingerprint", "标记应更新为本次指纹"
+
+
+def test_previous_outputs_kept_when_fingerprint_matches(tmp_path: Path) -> None:
+    """同配置重跑：产物原地保留，交给转换器覆盖。"""
+    from uup2iso.application.pipeline.handlers.convert import (
+        _SOURCE_MARKER,
+        _config_fingerprint,
+        _write_marker,
+    )
+
+    config = make_config(tmp_path)
+    (tmp_path / "uups").mkdir()
+    paths = converter_paths(tmp_path / "tools", tmp_path / "work")
+    paths.root.mkdir(parents=True)
+    paths.entry.write_text("rem converter", encoding="utf-8")
+    paths.bin_dir.mkdir()
+
+    (paths.root / "install.wim").write_bytes(b"KEEP")
+    _write_marker(paths.root / _SOURCE_MARKER, _config_fingerprint(config))
+
+    handler = ConvertStageHandler(tools_dir=tmp_path / "tools", admin_check=lambda: True)
+    handler._archive_previous_outputs(make_ctx(tmp_path, config), paths)
+
+    assert (paths.root / "install.wim").read_bytes() == b"KEEP"
+    assert not (paths.root / "_prev_unknown").exists()

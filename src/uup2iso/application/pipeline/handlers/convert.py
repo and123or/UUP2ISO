@@ -209,6 +209,7 @@ class ConvertStageHandler:
         if "config" in executed:
             write_config_ini(paths, options)
         if "aggregate" in executed:
+            self._archive_previous_outputs(ctx, paths)
             if not self._is_admin():
                 raise StageExecutionError(
                     "转换器需要管理员权限（内部会调用 DISM；非管理员它会弹 UAC 新窗口导致本进程失败）。"
@@ -366,6 +367,49 @@ class ConvertStageHandler:
         if sink is not None:
             sink.info("app.convert", text, stage="Convert", event="converter")
 
+    def _archive_previous_outputs(self, ctx: StageContext, paths: ConverterPaths) -> None:
+        r"""把**上一次配置**留下的产物挪到 `_prev_<指纹8位>/`，避免与本次混合。
+
+        依据：`convert\` 目录是转换器的工作区，它会复用 `install.wim` / 残留的 `ISOFOLDER`；
+        若不隔离，`integrate=false` 的旧产物可能被当成本次（`integrate=true`）的成果。
+        同卷 `rename`，不做复制（几 GB 也是瞬时的）。
+        """
+        marker = paths.root / _SOURCE_MARKER
+        current = _config_fingerprint(ctx.config)
+        previous = _read_marker(marker)
+        if previous and current and previous == current:
+            return  # 同配置重跑：交给转换器原地覆盖
+
+        archive = paths.root / f"_prev_{previous[:8] or 'unknown'}"
+        moved: list[str] = []
+        for candidate in _previous_outputs(paths):
+            target = archive / candidate.name
+            try:
+                archive.mkdir(parents=True, exist_ok=True)
+                if target.exists():
+                    target = (
+                        archive
+                        / f"{candidate.stem}.{int(candidate.stat().st_mtime)}{candidate.suffix}"
+                    )
+                candidate.rename(target)
+                moved.append(candidate.name)
+            except OSError as exc:
+                self._emit(
+                    ctx,
+                    "convert_prev_archive_failed",
+                    name=candidate.name,
+                    reason=type(exc).__name__,
+                )
+        if moved:
+            self._emit(
+                ctx,
+                "convert_prev_archived",
+                count=len(moved),
+                dir=str(archive.name),
+                previous=previous[:8] or "unknown",
+            )
+        _write_marker(marker, current)
+
     async def _run_with_mount_guard(
         self, ctx: StageContext, paths: ConverterPaths, source: Path
     ) -> None:
@@ -421,6 +465,56 @@ class ConvertStageHandler:
 # ---------------------------------------------------------------------------
 # 辅助（预演与执行共用）
 # ---------------------------------------------------------------------------
+
+
+_SOURCE_MARKER = ".uup2iso-source.json"
+
+
+def _config_fingerprint(config: object) -> str:
+    compute = getattr(config, "fingerprint", None)
+    try:
+        return str(compute()) if callable(compute) else ""
+    except (TypeError, ValueError):
+        return ""
+
+
+def _read_marker(path: Path) -> str:
+    import json
+
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return ""
+    return str(data.get("configFingerprint", "")) if isinstance(data, dict) else ""
+
+
+def _write_marker(path: Path, fingerprint: str) -> None:
+    import json
+    from datetime import datetime
+
+    payload = {
+        "configFingerprint": fingerprint,
+        "startedAt": datetime.now().isoformat(timespec="seconds"),
+    }
+    try:
+        text = json.dumps(payload, ensure_ascii=False, indent=2) + "\n"
+        path.write_text(text, encoding="utf-8")
+    except OSError:
+        return
+
+
+def _previous_outputs(paths: ConverterPaths) -> list[Path]:
+    """上一轮可能留下的产物（存在才算）。"""
+    found: list[Path] = []
+    for name in ("install.wim", "install.esd"):
+        candidate = paths.root / name
+        if candidate.is_file():
+            found.append(candidate)
+    for pattern in ("*.iso", "*.ISO"):
+        found.extend(item for item in paths.root.glob(pattern) if item.is_file())
+    if paths.iso_folder.is_dir():
+        found.append(paths.iso_folder)
+    return found
 
 
 def _dism_exe() -> Path:

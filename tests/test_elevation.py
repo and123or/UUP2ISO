@@ -125,3 +125,43 @@ def test_version_command_never_elevates(monkeypatch: pytest.MonkeyPatch) -> None
 
     result = CliRunner().invoke(cli_main.app, ["version"])
     assert result.exit_code == 0
+
+
+# --- 程序目录解析（不依赖 CWD / 打包可用）----------------------------------
+
+
+def test_program_dir_dev_mode_is_repo_root() -> None:
+    from uup2iso.application.startup import program_dir
+
+    assert (program_dir() / "pyproject.toml").is_file()
+
+
+def test_program_dir_frozen_is_exe_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import sys
+
+    from uup2iso.application.startup import program_dir
+
+    exe = tmp_path / "app" / "uup2iso.exe"
+    exe.parent.mkdir(parents=True)
+    exe.write_bytes(b"MZ")
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(sys, "executable", str(exe))
+
+    assert program_dir() == exe.parent
+
+
+def test_tools_fallback_ignores_cwd(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """`tools` 兜底必须指向程序目录，而不是启动时的当前目录。"""
+    from uup2iso.application.pipeline.handlers.convert import _default_tools_dir
+    from uup2iso.application.startup import program_dir
+
+    monkeypatch.chdir(tmp_path)
+    assert _default_tools_dir() == program_dir() / "tools"
+
+
+def test_dry_run_dir_ignores_cwd(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from uup2iso.application.pipeline.orchestrator import _default_dry_run_dir
+    from uup2iso.application.startup import program_dir
+
+    monkeypatch.chdir(tmp_path)
+    assert _default_dry_run_dir() == program_dir() / "work" / "dry-run"

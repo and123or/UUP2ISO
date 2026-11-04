@@ -43,7 +43,9 @@ MATRIX_FILENAME = "dependency-matrix.json"
 
 
 def _repo_rules_dir() -> Path | None:
-    """开发期回退：仓库里的 ``docs/规范/rules``。"""
+    """开发期回退：仓库里的 ``docs/规范/rules``（**仅非打包时**，避免 exe 内 __file__ 失效）。"""
+    if getattr(sys, "frozen", False):
+        return None
     candidate = Path(__file__).resolve().parents[4] / "docs" / "规范" / "rules"
     return candidate if candidate.is_dir() else None
 

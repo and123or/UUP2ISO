@@ -533,7 +533,7 @@ class PipelineOrchestrator:
                 config=config,
                 stage=stage_plan.stage,
                 plan=stage_plan,
-                work_dir=work_dir or Path("work") / "dry-run",
+                work_dir=work_dir or _default_dry_run_dir(),
             )
             has_describe, has_reuse = has_dry_run_info(handler)
             commands = tuple(handler.describe(ctx)) if has_describe else ()  # type: ignore[attr-defined]
@@ -644,6 +644,13 @@ async def _async_sleep(seconds: float) -> None:
     import asyncio
 
     await asyncio.sleep(seconds)
+
+
+def _default_dry_run_dir() -> Path:
+    """dry-run 的兜底工作目录：程序目录下的 work（与 run 一致，不依赖 CWD）。"""
+    from uup2iso.application.startup import program_dir
+
+    return program_dir() / "work" / "dry-run"
 
 
 def _is_cancelled(cancel: object | None) -> bool:

@@ -78,7 +78,7 @@ _VERSION_PATTERNS: dict[ToolKind, re.Pattern[str]] = {
 _CONVERTER_DIR = "uup-converter-wimlib"
 _CONVERTER_VERSION_FILE = "version.txt"
 
-_SYSTEM32 = Path(os.environ.get("SystemRoot", r"C://Windows")) / "System32"
+_SYSTEM32 = Path(os.environ.get("SystemRoot") or r"C://Windows") / "System32"
 
 _ELEVATION_REQUIRED = 740
 """Windows ERROR_ELEVATION_REQUIRED：DISM 在非管理员下直接失败（进程 §2.4）。"""

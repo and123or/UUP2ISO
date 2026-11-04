@@ -33,6 +33,7 @@ from uup2iso.application.startup import (
     StartupReport,
     acquire_instance,
     bootstrap,
+    program_dir,
     release_instance,
 )
 from uup2iso.application.task_session import TaskSession
@@ -102,7 +103,7 @@ def _make_output_handler() -> StageHandler:
     from uup2iso.application.pipeline.handlers import OutputStageHandler
     from uup2iso.infrastructure.process.runner import ProcessRunner
 
-    root = Path(__file__).resolve().parents[3]
+    root = program_dir()
     return OutputStageHandler(runner=ProcessRunner(), tools_dir=root / "tools")
 
 
@@ -111,7 +112,7 @@ def _make_convert_handler() -> StageHandler:
     from uup2iso.application.pipeline.handlers import ConvertStageHandler
     from uup2iso.infrastructure.process.runner import ProcessRunner
 
-    root = Path(__file__).resolve().parents[3]
+    root = program_dir()
     return ConvertStageHandler(tools_dir=root / "tools", runner=ProcessRunner())
 
 
@@ -126,7 +127,7 @@ def _make_fetch_handler(config: object) -> StageHandler:
     from uup2iso.infrastructure.tools.lock import load_lock
     from uup2iso.infrastructure.tools.provider import ToolProvider
 
-    root = Path(__file__).resolve().parents[3]
+    root = program_dir()
     source_cfg = getattr(config, "source", None)
     base_url = str(getattr(source_cfg, "base_url", "https://uupdump.net/"))
     lock = load_lock(root / "tools" / "tools.lock.json")

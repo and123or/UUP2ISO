@@ -498,7 +498,9 @@ def _count_images(stdout: str | None) -> int:
 
 
 def _wimlib_path(tools_dir: Path | None) -> Path:
-    base = tools_dir or Path("tools")
+    from uup2iso.application.startup import program_dir
+
+    base = tools_dir or program_dir() / "tools"
     candidate = base / "wimlib-imagex" / "wimlib-imagex.exe"
     return candidate if candidate.is_file() else base / "wimlib-imagex.exe"
 

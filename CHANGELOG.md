@@ -1,5 +1,38 @@
 # CHANGELOG
 
+## 0.1.42 — 路径审计：清除写死路径与 CWD 依赖
+
+> 用户要求「检查程序中是否还有其它写死的路径」。按 6 类模式全量扫描 `src/**/*.py` 并逐个修复。
+
+### 修复（6 处）
+
+| # | 位置 | 问题 | 处理 |
+| --- | --- | --- | --- |
+| 1 | `application/cli_runner.py`（3 处） | `Path(__file__).resolve().parents[3]` 推程序目录，**打包成 exe 后 `__file__` 在 exe 内部，parents[3] 无意义** → tools/ 定位会错 | 统一改用 `startup.program_dir()`（已处理 frozen） |
+| 2 | `handlers/convert.py`（2 处） | `self._tools_dir or Path("tools")` —— 兜底依赖**当前工作目录** | 新增 `_default_tools_dir()` → `program_dir()/tools` |
+| 3 | `handlers/output.py` | `base = tools_dir or Path("tools")` 同上 | 同上 |
+| 4 | `orchestrator.py` | dry-run 兜底 `Path("work")/"dry-run"` 依赖 CWD | `_default_dry_run_dir()` → `program_dir()/work/dry-run` |
+| 5 | `infrastructure/tools/provider.py` | `Path(os.environ.get("SystemRoot", r"C://Windows"))` —— **盘符写成 `C://`**（笔误） | 改为 `or r"C:////Windows"` |
+| 6 | `infrastructure/rules/loader.py` | 开发期回退 `parents[4]/docs/...` 在打包后可能指向 `_MEIPASS` 上级 | 加 `if frozen: return None`，打包时只走「程序目录 rules → 包内 rules」 |
+
+### 确认「无需改」的 3 处（审计结论）
+
+| 位置 | 写法 | 为什么可以 |
+| --- | --- | --- |
+| `handlers/prepare.py` | `Path("input")/"probe.json"` | 相对的是 `ctx.work_dir`（`work_dir / _PROBE_RELATIVE`），不是 CWD |
+| `application/elevation.py` | `cwd or Path.cwd()` | 提权重启时**应该**继承启动目录，属预期行为 |
+| `infrastructure/version/catalog.py`、`schemas`、`tools.lock` | `Path(__file__).parents[2]` | 包内相对路径，随包分发，改不了也不需要改 |
+
+### 测试
+- `test_elevation.py`（16）：新增 4 项——`program_dir()` 开发期=仓库根、frozen 时=exe 目录、
+  `tools` 兜底忽略 CWD、dry-run 目录忽略 CWD。
+- 全量：`pytest 全绿`；`mypy 122 files`；`ruff`/`format` 全绿。
+
+### 已知限制
+- 打包成单文件（onefile）后 `sys.executable` 仍指向 exe，但 `__file__` 在 `_MEIPASS` 临时目录；
+  以上修改已按此假设处理，**仍需在真实 PyInstaller 产物上验证一次**（WP11）。
+- `scripts/*.py` 是开发脚本（手工运行），保留相对路径；不属分发代码。
+
 ## 0.1.41 — 输出目录默认落在程序目录（不再要求用户先建目录）
 
 > 用户指出：输出不应在磁盘根创建文件夹，应该是程序目录或用户指定。

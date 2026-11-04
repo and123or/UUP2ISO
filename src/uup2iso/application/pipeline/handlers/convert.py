@@ -240,7 +240,7 @@ class ConvertStageHandler:
 
     def describe(self, ctx: StageContext) -> tuple[str, ...]:
         """`--dry-run`：完整命令序列（**不执行**）。"""
-        paths = converter_paths(self._tools_dir or Path("tools"), ctx.work_dir)
+        paths = converter_paths(self._tools_dir or _default_tools_dir(), ctx.work_dir)
         options = options_from(getattr(ctx.config, "convert", None))
         source = _resolve_input_dir(ctx.config)
         ini_flags = (
@@ -258,7 +258,7 @@ class ConvertStageHandler:
         )
 
     def file_operations(self, ctx: StageContext) -> tuple[FileOp, ...]:
-        paths = converter_paths(self._tools_dir or Path("tools"), ctx.work_dir)
+        paths = converter_paths(self._tools_dir or _default_tools_dir(), ctx.work_dir)
         ops = [
             FileOp("create", str(paths.ini), "由 TaskConfig 生成的转换器配置"),
             FileOp("create", str(paths.bin_dir), "转换器自带 bin（7z/wimlib/cdimage…）"),
@@ -334,6 +334,13 @@ class ConvertStageHandler:
 # ---------------------------------------------------------------------------
 # 辅助（预演与执行共用）
 # ---------------------------------------------------------------------------
+
+
+def _default_tools_dir() -> Path:
+    """工具目录兜底：程序目录下的 tools（**不是**当前工作目录）。"""
+    from uup2iso.application.startup import program_dir
+
+    return program_dir() / "tools"
 
 
 def is_admin() -> bool:

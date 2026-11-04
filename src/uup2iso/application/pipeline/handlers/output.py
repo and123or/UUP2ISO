@@ -281,7 +281,7 @@ class OutputStageHandler:
         产物名里的 arch/edition/lang 来自镜像本身（转换器从 install.wim 元数据拼的），
         比配置里手写的更可信——这也是 `unknown` 的主要来源。
         """
-        template = config.output.name_template or "{edition}_{build}_{arch}_{lang}"
+        template = config.output.name_template or "Win11_{build}_{edition}_{arch}_{lang}"
         version = ctx.extras.get("version")
         image = None
         if source.suffix.lower() == ".iso":
@@ -297,7 +297,15 @@ class OutputStageHandler:
                 (image.edition if image else ""),
                 "unknown",
             ),
+            # `{build}` 语义 = **产物装出来的版本**（镜像基线），不是数据源版本：
+            # 未集成 LCU 时镜像仍是 26100.1，直接写 26300 会误导。
             "build": _pick(
+                (image.build_revision if image else ""),
+                getattr(version, "build", ""),
+                (config.source.build if config.source else ""),
+                "unknown",
+            ),
+            "sourceBuild": _pick(
                 getattr(version, "build", ""),
                 (config.source.build if config.source else ""),
                 "unknown",
@@ -562,7 +570,8 @@ class OutputStageHandler:
             f"产物：{final.name}",
             f"大小：{size} 字节（{size / 1e9:.2f} GB）",
             f"SHA256：{digest}",
-            f"构建：{getattr(version, 'build', '') or '-'}",
+            f"产物版本：{_image_version(ctx) or getattr(version, 'build', '') or '-'}",
+            f"数据源构建：{getattr(version, 'build', '') or '-'}",
             f"镜像基线：{_image_baseline(ctx) or '-'}",
             f"版本族：{getattr(version, 'family', '') or '-'}",
             f"语言：{getattr(version, 'language', '') or '-'}",
@@ -645,6 +654,13 @@ def _sha256_of(path: Path) -> str:
 def _count_images(stdout: str | None) -> int:
     match = re.search(r"Image Count:\s*(\d+)", stdout or "")
     return int(match.group(1)) if match else 0
+
+
+def _image_version(ctx: StageContext) -> str:
+    """产物版本（`26100.1`）：镜像基线的主版本.修订。"""
+    image = ctx.extras.get("image")
+    value = getattr(image, "build_revision", "")
+    return value if isinstance(value, str) else ""
 
 
 def _image_baseline(ctx: StageContext) -> str:

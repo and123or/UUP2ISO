@@ -93,4 +93,5 @@ def test_output_name_uses_image_info(tmp_path: Path) -> None:
     name = handler._compose_name(ctx, config, Path(REAL))
 
     assert "unknown" not in name, f"不该再出现 unknown：{name}"
-    assert "x64" in name and "zh-cn" in name
+    assert name.startswith("Win11_26100.1_"), f"产物名应描述镜像版本：{name}"
+    assert "professional" in name and "x64" in name and "zh-cn" in name

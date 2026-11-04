@@ -583,7 +583,7 @@
           "type": "string"
         },
         "nameTemplate": {
-          "default": "{edition}_{build}_{arch}_{lang}",
+          "default": "Win11_{build}_{edition}_{arch}_{lang}",
           "title": "Nametemplate",
           "type": "string"
         },

@@ -130,6 +130,13 @@ def make_ctx(tmp_path: Path, config: object | None = None) -> StageContext:
 # --- 命名与重名 -------------------------------------------------------------
 
 
+def test_default_name_template(tmp_path: Path) -> None:
+    """默认模板描述「装出来的系统」：Win11_{build}_{edition}_{arch}_{lang}。"""
+    from uup2iso.core.models.config import OutputSection
+
+    assert OutputSection().name_template == "Win11_{build}_{edition}_{arch}_{lang}"
+
+
 def test_render_name_substitutes_variables() -> None:
     name = render_name(
         "{edition}_{build}_{arch}_{lang}",

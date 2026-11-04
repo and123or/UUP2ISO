@@ -69,6 +69,13 @@ class ImageNameInfo:
     language: str = ""
 
     @property
+    def build_revision(self) -> str:
+        """`26100.1` 这种「主版本.修订」串（产物名的 `{build}` 用它）。"""
+        if not (self.build and self.revision):
+            return ""
+        return f"{self.build}.{self.revision}"
+
+    @property
     def baseline(self) -> str:
         """`26100.1.240331-1435` 这种基线串（不含类型/版本信息）。"""
         if not (self.build and self.revision and self.date):

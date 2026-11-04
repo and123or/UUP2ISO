@@ -1,5 +1,34 @@
 # CHANGELOG
 
+## 0.1.47 — 产物名描述「装出来的系统」（默认模板 + build 语义调整）
+
+> 用户决策：数据源是 26H2（26300.9818），但**未集成更新**，所以产出其实是 24H2（26100.1）。
+> 转换器给的名称更权威——产物名应说明「装完是什么版本」，不是「数据源是什么版本」。
+
+### 变更
+- **默认 `nameTemplate`**：`{edition}_{build}_{arch}_{lang}` → **`Win11_{build}_{edition}_{arch}_{lang}`**
+  （`config.py` 与 `taskconfig.schema.json` 同步再生）。
+- **`{build}` 语义改为「产物版本」**：取镜像基线 `build.rev`（`26100.1`），
+  来源优先级 = 产物名解析 → 版本判定 → 任务配置。
+- **新增 `{sourceBuild}`**：保留数据源构建号（`26300.9818`），需要区分时才用。
+- 伴生 `readme` 拆成三行：`产物版本` / `数据源构建` / `镜像基线`。
+
+### 效果（真实样本，数据源 26300.9818 + integrate=false）
+```
+旧：professional_26300.9818_unknown_zh-cn.iso
+新：Win11_26100.1_professional_x64_zh-cn.iso
+readme：产物版本 26100.1 ｜ 数据源构建 26300.9818 ｜ 镜像基线 26100.1.240331-1435
+```
+（开 `updates.integrate=true` 后 `{build}` 会变成集成后的版本，产物名自动跟随。）
+
+### 测试
+- `test_image_name.py`：命名联动断言改为「以 `Win11_26100.1_` 开头」。
+- `test_output_handler.py`：新增「默认模板」断言。
+- 全量：`pytest 全绿`；`mypy 124 files`；`ruff`/`format` 全绿；schema 无漂移。
+
+### 变更（文档）
+- `输出` v0.6 → **v0.7**：§5.1 明确「产物名描述装出来的系统」，并给出 5 个变量的取值来源表。
+
 ## 0.1.46 — 从产物文件名提取镜像信息（消除 unknown）
 
 > 用户提问：`26100.1.240331-1435.GE_RELEASE_CLIENTPRO_OEMRET_X64FRE_ZH-CN.ISO` 这名字怎么来的？

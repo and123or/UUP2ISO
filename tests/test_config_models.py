@@ -49,7 +49,7 @@ def test_defaults_match_spec_section_5() -> None:
     assert config.output.type is OutputType.ISO
     assert config.output.collision == "suffix"
     assert config.output.verify_level == 2
-    assert config.output.name_template == "{edition}_{build}_{arch}_{lang}"
+    assert config.output.name_template == "Win11_{build}_{edition}_{arch}_{lang}"
 
     assert config.fetch is not None
     assert config.fetch.split == 8

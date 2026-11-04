@@ -406,7 +406,9 @@ class OutputSection(_Section):
     """输出规则（配置 §3.4）。"""
 
     dir: str = ""
-    name_template: str = Field(default="{edition}_{build}_{arch}_{lang}", alias="nameTemplate")
+    name_template: str = Field(
+        default="Win11_{build}_{edition}_{arch}_{lang}", alias="nameTemplate"
+    )
     type: OutputType = OutputType.ISO
     collision: Literal["suffix", "ask", "overwrite"] = "suffix"
     verify_level: int = Field(default=2, alias="verifyLevel")

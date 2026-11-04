@@ -233,6 +233,33 @@ def test_iso_packed_from_folder(tmp_path: Path) -> None:
     )
 
 
+def test_picks_newest_iso_when_multiple_exist(tmp_path: Path) -> None:
+    """转换器会留下多份 ISO（旧的未集成 + 新集成后）：必须取最新，而不是按名字排序。"""
+    import os
+    import time
+
+    config = make_config(tmp_path, output_type=OutputType.ISO)
+    convert_dir = tmp_path / "work" / "convert"
+    convert_dir.mkdir(parents=True)
+    old_iso = convert_dir / "26100.1.240331-1435.GE_RELEASE_CLIENTPRO_OEMRET_X64FRE_ZH-CN.ISO"
+    new_iso = convert_dir / (
+        "26300.9818.261025-0959.26H2_GE_RELEASE_SVC_PROD3_CLIENTPRO_OEMRET_X64FRE_ZH-CN.ISO"
+    )
+    for path in (old_iso, new_iso):
+        payload = bytearray(40000)
+        payload[32769:32774] = b"CD001"
+        path.write_bytes(bytes(payload))
+    # 让 new_iso 明显更新（旧文件时间回拨 1 小时）
+    past = time.time() - 3600
+    os.utime(old_iso, (past, past))
+
+    handler = OutputStageHandler(runner=FakeRunner(), tools_dir=tmp_path / "tools")
+    ctx = make_ctx(tmp_path, config)
+    source = handler._locate_source(ctx)
+
+    assert source.path.name.startswith("26300.9818"), f"应选集成后的新 ISO，实际 {source.path.name}"
+
+
 def test_iso_missing_boot_files_is_rejected(tmp_path: Path) -> None:
     config = make_config(tmp_path, output_type=OutputType.ISO)
     wim = make_wim(tmp_path / "work")

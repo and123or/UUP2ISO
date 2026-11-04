@@ -1,5 +1,63 @@
 # CHANGELOG
 
+## 0.1.49 — 修「交付了错误 ISO」+ 支持集成后的产物名
+
+> 用户反馈：进程已跑完、产物在 `output`，但命名仍有 `unknown`。
+> 复盘日志 `run_20261104-232018.log`（用最新分类器过滤进度后）发现**两个真问题**。
+
+### 问题 1（严重）：多份 ISO 时选错了产物
+`work\c14e0cad\convert\` 里有**两份** ISO：
+
+```
+4.3 GB  22:33  26100.1.240331-1435.GE_RELEASE_CLIENTPRO_OEMRET_X64FRE_ZH-CN.ISO   ← 未集成（旧）
+8.9 GB  00:07  26300.9818.261025-0959.26H2_GE_RELEASE_SVC_PROD3_CLIENTPRO_...      ← 集成后（新）
+```
+
+`_locate_source` 用 `_first()`（`rglob` 排序取第一个）→ 按名字 `26100` < `26300` 选中**旧的那份**，
+于是把 4.3 GB 的未集成镜像当成交付物，用户花 47 分钟集成的 8.9 GB 成果被忽略。
+
+**修复**：新增 `_newest_with_count()`，按 **mtime 取最新**；候选 >1 时记 `iso_source_selected`。
+
+### 问题 2：集成后的产物名解析不了（两个 unknown）
+集成后的命名多了版本族标签和下划线变体：
+`26300.9818.261025-0959.26H2_GE_RELEASE_SVC_PROD3_CLIENTPRO_OEMRET_X64FRE_ZH-CN`
+旧正则要求 `<tag>_<type>_<edition>` 且 type 无下划线 → 匹配失败 → `{edition}`/`{arch}` 双双 unknown。
+
+**修复**：正则改为**右锚定**（`channel/arch/lang` 固定在尾部，向左回溯切 edition，其余归 prefix），
+再从前缀提取可选版本族（`26H2`）、tag、发布类型（`RELEASE_SVC_PROD3`）。
+
+### 顺带修 readme
+| 字段 | 之前 | 现在 |
+| --- | --- | --- |
+| `edition` | `-`（只读 version，未填充） | `professional`（取产物名解析值） |
+| `版本族` | `26H2`（数据源）与产物版本矛盾 | 拆成 `版本族（产物）` + `版本族（数据源）`，前者按产物 build 反查 |
+
+### 修复后的真实产物
+```
+output\Win11_26300.9818_professional_x64_zh-cn.iso        9,543,989,248 字节（8.9 GiB）
+  .sha256 / .readme.txt
+readme：产物版本 26300.9818 ｜ 镜像基线 26300.9818.261025-0959 ｜
+        版本族（产物）26H2 ｜ edition professional ｜ 语言 zh-cn
+```
+
+### 日志分析结果（用最新分类器过滤进度后）
+```
+run_20261104-232018.log：2881 行
+  转换器输出 2863 行 → progress 2636（92%，本不该落盘）｜ line 226 ｜ result 1
+  框架日志 18 行：startup → task_started → 各阶段 start/finish → task_finished（干净）
+  阶段耗时：Prepare 0.6s ｜ Convert 2817.0s（集成 LCU）｜ Output 9.2s
+```
+修复前那 2636 行进度会被采集成 `sampled=true`，但仍占 92% 篇幅；0.1.48 之后只保留 227 行有效信息。
+
+### 测试
+- `test_image_name.py`（7）：新增「集成后命名（含 `26H2` 族标签 + `RELEASE_SVC_PROD3`）」。
+- `test_output_handler.py`（26）：新增「多份 ISO 取最新（而不是按名字排序）」。
+- 全量：`pytest 全绿`；`mypy 124 files`；`ruff`/`format` 全绿。
+
+### 已知限制
+- 多产物目前按 mtime 取最新；若用户想要"指定某一份"，需要后续加显式输入选择。
+- 旧的 4.3 GB 产物（`professional_26100.1_x64_zh-cn.iso`）仍在 `output\`，确认后可删。
+
 ## 0.1.48 — 进度不再写入日志文件（日志 §5.2）
 
 > 用户指出：规范明确「转换进度不得写入日志」，但日志文件里仍有大量进度条目。

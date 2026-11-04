@@ -22,13 +22,18 @@ from dataclasses import dataclass
 
 __all__ = ["ImageNameInfo", "parse_converter_iso_name"]
 
+# 两种实测格式都要支持：
+#   26100.1.240331-1435.GE_RELEASE_CLIENTPRO_OEMRET_X64FRE_ZH-CN          （未集成）
+#   26300.9818.261025-0959.26H2_GE_RELEASE_SVC_PROD3_CLIENTPRO_OEMRET_X64FRE_ZH-CN（集成后）
+# 差别：多一个版本族标签（26H2），且发布类型可带下划线（SVC_PROD3）。
+# 用「右锚定」解析：channel/arch/lang 固定在尾部，向左回溯切出 edition，其余归 prefix。
 _PATTERN = re.compile(
-    r"^(?P<build>\d{5})\.(?P<revision>\d+)\.(?P<date>\d{6})-(?P<time>\d{4})"
-    r"\.(?P<tag>[A-Za-z]+)_(?P<type>[A-Za-z]+)_"
-    r"(?P<edition>[A-Za-z0-9]+)_(?P<channel>OEMRET|VOL)_"
+    r"^(?P<build>\d{5})\.(?P<revision>\d+)\.(?P<date>\d{6})-(?P<time>\d{4})\."
+    r"(?P<prefix>.+?)_(?P<edition>[A-Za-z0-9]+)_(?P<channel>OEMRET|VOL)_"
     r"(?P<arch>X64|X86|ARM64)FRE_(?P<lang>[A-Za-z]{2}-[A-Za-z]{2})$",
     re.IGNORECASE,
 )
+_FAMILY_IN_PREFIX = re.compile(r"^(?P<family>\d{2}H\d)_", re.IGNORECASE)
 
 _ARCH = {"X64": "x64", "X86": "x86", "ARM64": "arm64"}
 
@@ -60,6 +65,8 @@ class ImageNameInfo:
     build: str = ""
     revision: str = ""
     date: str = ""
+    family: str = ""
+    """版本族标签（如 `26H2`），仅集成后的产物名才带。"""
     tag: str = ""
     release_type: str = ""
     edition_token: str = ""
@@ -98,13 +105,24 @@ def parse_converter_iso_name(name: str) -> ImageNameInfo | None:
     if match is None:
         return None
 
+    prefix = match.group("prefix")
+    family = ""
+    family_match = _FAMILY_IN_PREFIX.match(prefix)
+    if family_match is not None:
+        family = family_match.group("family").upper()
+        prefix = prefix[family_match.end() :]
+    parts = prefix.split("_", 1)
+    tag = parts[0].upper()
+    release_type = (parts[1] if len(parts) > 1 else "").upper()
+
     edition_token = match.group("edition").upper()
     return ImageNameInfo(
         build=match.group("build"),
         revision=match.group("revision"),
         date=f"{match.group('date')}-{match.group('time')}",
-        tag=match.group("tag").upper(),
-        release_type=match.group("type").upper(),
+        family=family,
+        tag=tag,
+        release_type=release_type,
         edition_token=edition_token,
         edition=_EDITION.get(edition_token, edition_token.lower()),
         channel=match.group("channel").upper(),

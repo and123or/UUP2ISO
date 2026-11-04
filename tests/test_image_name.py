@@ -28,6 +28,23 @@ def test_parses_real_converter_output() -> None:
     assert info.baseline == "26100.1.240331-1435"
 
 
+INTEGRATED = "26300.9818.261025-0959.26H2_GE_RELEASE_SVC_PROD3_CLIENTPRO_OEMRET_X64FRE_ZH-CN.ISO"
+
+
+def test_parses_integrated_name_with_family_tag() -> None:
+    """集成后转换器会多一个版本族标签、发布类型带下划线（`RELEASE_SVC_PROD3`）。"""
+    info = parse_converter_iso_name(INTEGRATED)
+
+    assert info is not None
+    assert (info.build, info.revision) == ("26300", "9818")
+    assert info.family == "26H2"
+    assert info.release_type == "RELEASE_SVC_PROD3"
+    assert info.edition == "professional"
+    assert info.arch == "x64"
+    assert info.language == "zh-cn"
+    assert info.baseline == "26300.9818.261025-0959"
+
+
 def test_volume_channel_is_kept() -> None:
     info = parse_converter_iso_name(
         "26100.1.240331-1435.GE_RELEASE_PROFESSIONALVL_VOL_X64FRE_EN-US.ISO"

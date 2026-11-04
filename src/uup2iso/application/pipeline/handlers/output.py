@@ -222,8 +222,12 @@ class OutputStageHandler:
         convert_dir = ctx.work_dir / "convert"
 
         if output_type is OutputType.ISO:
-            produced = _first(convert_dir, "*.iso")
+            # 转换器可能留下多份 ISO（旧的未集成 + 新集成后的），必须取**最新**的：
+            # 按名字排序会选中 `26100.1…`（旧），把 4.3 GB 当成 8.9 GB 的成果交付。
+            produced, candidates = _newest_with_count(convert_dir, "*.iso", "*.ISO")
             if produced is not None:
+                if candidates > 1:
+                    self._log(ctx, "iso_source_selected", count=candidates, path=produced.name)
                 return OutputSource(path=produced, kind="iso")
             folder = convert_dir / "ISOFOLDER"
             if folder.is_dir():
@@ -573,9 +577,10 @@ class OutputStageHandler:
             f"产物版本：{_image_version(ctx) or getattr(version, 'build', '') or '-'}",
             f"数据源构建：{getattr(version, 'build', '') or '-'}",
             f"镜像基线：{_image_baseline(ctx) or '-'}",
-            f"版本族：{getattr(version, 'family', '') or '-'}",
-            f"语言：{getattr(version, 'language', '') or '-'}",
-            f"edition：{getattr(version, 'edition', '') or '-'}",
+            f"版本族（产物）：{_image_family(ctx) or getattr(version, 'family', '') or '-'}",
+            f"版本族（数据源）：{getattr(version, 'family', '') or '-'}",
+            f"语言：{_image_field(ctx, 'language') or getattr(version, 'language', '') or '-'}",
+            f"edition：{_image_field(ctx, 'edition') or getattr(version, 'edition', '') or '-'}",
             f"输出类型：{config.output.type.value}",
             f"校验级别：L{config.output.verify_level}",
             f"任务：{ctx.task_id}",
@@ -654,6 +659,24 @@ def _sha256_of(path: Path) -> str:
 def _count_images(stdout: str | None) -> int:
     match = re.search(r"Image Count:\s*(\d+)", stdout or "")
     return int(match.group(1)) if match else 0
+
+
+def _image_field(ctx: StageContext, name: str) -> str:
+    value = getattr(ctx.extras.get("image"), name, "")
+    return value if isinstance(value, str) else ""
+
+
+def _image_family(ctx: StageContext) -> str:
+    """按**产物版本**反查版本族（26100 → 24H2，26300 → 26H2）。"""
+    build = _image_field(ctx, "build")
+    if not build.isdigit():
+        return ""
+    try:
+        from uup2iso.infrastructure.version import VersionCatalog
+
+        return VersionCatalog().family_of(int(build))
+    except (OSError, ValueError):
+        return ""
 
 
 def _image_version(ctx: StageContext) -> str:
@@ -760,6 +783,23 @@ def _wimlib_path(tools_dir: Path | None) -> Path:
     base = tools_dir or program_dir() / "tools"
     candidate = base / "wimlib-imagex" / "wimlib-imagex.exe"
     return candidate if candidate.is_file() else base / "wimlib-imagex.exe"
+
+
+def _newest_with_count(root: Path, *patterns: str) -> tuple[Path | None, int]:
+    """返回 (最新文件, 候选数)——同一目录可能有多份产物，按 mtime 取最新。"""
+    if not root.is_dir():
+        return None, 0
+    items = [
+        item
+        for pattern in patterns
+        for item in root.rglob(pattern)
+        if item.is_file() and item.suffix.lower() in {".iso", ".esd", ".wim"}
+    ]
+    unique = {str(item).lower(): item for item in items}
+    if not unique:
+        return None, 0
+    ordered = sorted(unique.values(), key=lambda item: item.stat().st_mtime)
+    return ordered[-1], len(ordered)
 
 
 def _first(root: Path, pattern: str) -> Path | None:

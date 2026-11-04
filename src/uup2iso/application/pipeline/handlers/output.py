@@ -275,13 +275,26 @@ class OutputStageHandler:
         return path
 
     def _compose_name(self, ctx: StageContext, config: TaskConfig, source: Path) -> str:
-        """按模板渲染文件名（无扩展名）。变量缺失填 `unknown` 并记 WARN。"""
+        """按模板渲染文件名（无扩展名）。
+
+        取值优先级：版本判定（Prepare）→ 配置 → **产物文件名解析** → `unknown`。
+        产物名里的 arch/edition/lang 来自镜像本身（转换器从 install.wim 元数据拼的），
+        比配置里手写的更可信——这也是 `unknown` 的主要来源。
+        """
         template = config.output.name_template or "{edition}_{build}_{arch}_{lang}"
         version = ctx.extras.get("version")
+        image = None
+        if source.suffix.lower() == ".iso":
+            from uup2iso.infrastructure.input.image_name import parse_converter_iso_name
+
+            image = parse_converter_iso_name(source.name)
+            if image is not None:
+                ctx.extras["image"] = image
         values = {
             "edition": _pick(
                 getattr(version, "edition", ""),
                 (config.convert.editions[0] if config.convert and config.convert.editions else ""),
+                (image.edition if image else ""),
                 "unknown",
             ),
             "build": _pick(
@@ -289,10 +302,15 @@ class OutputStageHandler:
                 (config.source.build if config.source else ""),
                 "unknown",
             ),
-            "arch": _pick(getattr(config.source, "arch", "") if config.source else "", "unknown"),
+            "arch": _pick(
+                getattr(config.source, "arch", "") if config.source else "",
+                (image.arch if image else ""),
+                "unknown",
+            ),
             "lang": _pick(
                 getattr(version, "language", ""),
                 (config.source.language if config.source else ""),
+                (image.language if image else ""),
                 "unknown",
             ),
         }
@@ -545,6 +563,7 @@ class OutputStageHandler:
             f"大小：{size} 字节（{size / 1e9:.2f} GB）",
             f"SHA256：{digest}",
             f"构建：{getattr(version, 'build', '') or '-'}",
+            f"镜像基线：{_image_baseline(ctx) or '-'}",
             f"版本族：{getattr(version, 'family', '') or '-'}",
             f"语言：{getattr(version, 'language', '') or '-'}",
             f"edition：{getattr(version, 'edition', '') or '-'}",
@@ -626,6 +645,13 @@ def _sha256_of(path: Path) -> str:
 def _count_images(stdout: str | None) -> int:
     match = re.search(r"Image Count:\s*(\d+)", stdout or "")
     return int(match.group(1)) if match else 0
+
+
+def _image_baseline(ctx: StageContext) -> str:
+    """从 `ctx.extras["image"]` 取镜像基线串（`26100.1.240331-1435`）。"""
+    image = ctx.extras.get("image")
+    baseline = getattr(image, "baseline", "")
+    return baseline if isinstance(baseline, str) else ""
 
 
 def _source_size(path: Path) -> int:

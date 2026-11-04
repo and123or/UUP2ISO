@@ -1,5 +1,51 @@
 # CHANGELOG
 
+## 0.1.46 — 从产物文件名提取镜像信息（消除 unknown）
+
+> 用户提问：`26100.1.240331-1435.GE_RELEASE_CLIENTPRO_OEMRET_X64FRE_ZH-CN.ISO` 这名字怎么来的？
+> 能不能直接用 / 提取信息，避免 `unknown`？
+
+### 文件名结构与来源
+转换器（`convert-UUP.cmd:1374-1400` 的映射表）按
+`<build>.<rev>.<date>-<time>.<tag>_<TYPE>_<EDITION>_<CHANNEL>_<ARCH>FRE_<LANG>` 拼接：
+
+| 段 | 示例 | 含义 |
+| --- | --- | --- |
+| build.rev | `26100.1` | **镜像基线**版本（未集成 LCU 时等于原始 build） |
+| date-time | `240331-1435` | 编译日期时间 |
+| tag_TYPE | `GE_RELEASE` | 发布标记/类型 |
+| EDITION | `CLIENTPRO` | 版本（映射：CLIENTPRO/PRO→professional、CORE→home…） |
+| CHANNEL | `OEMRET` / `VOL` | 零售 / 批量授权 |
+| ARCH | `X64` / `X86` / `ARM64` | 架构 |
+| LANG | `ZH-CN` | 语言 |
+
+### 新增
+- `infrastructure/input/image_name.py`：`parse_converter_iso_name()` → `ImageNameInfo`
+  （build/revision/date/tag/release_type/edition_token/edition/channel/arch/language/baseline）。
+  保守映射：认不得的 token **原样小写保留**（宁可 `clientprox`，也不退回 `unknown`）。
+- `Output._compose_name()` 取值优先级改为：版本判定 → 配置 → **产物名解析** → `unknown`。
+- 伴生 `readme` 增加「镜像基线」一行（`26100.1.240331-1435`）。
+
+### 效果（真实样本）
+```
+旧：professional_26300.9818_unknown_zh-cn.iso
+新：professional_26300.9818_x64_zh-cn.iso
+readme：构建 26300.9818 ｜ 镜像基线 26100.1.240331-1435
+```
+
+### 为什么不直接用文件名当产物名
+- 它是**镜像基线**（26100），而数据源是 26300.9818；直接用会让用户误以为下的是 24H2。
+- 它带 `OEMRET`/`RELEASE` 等渠道标记，属于 UUP 转换语义，不适合当交付文件名。
+- 结论：**提取字段用于命名与 readme，但不整段照抄**。
+
+### 测试
+- `test_image_name.py`（6）：真实样本解析、VOL 渠道、HOME 映射、未知 token 保留、
+  非转换器命名返回 None、与 `Output` 命名联动（断言不再出现 `unknown`）。
+- 全量：`pytest 全绿`；`mypy 124 files`；`ruff`/`format` 全绿。
+
+### 变更（文档）
+- `输出` v0.5 → **v0.6**：§5.1 增加「变量取值优先级」与产物名解析说明。
+
 ## 0.1.45 — 修 full 模式误判 + ISO 校验依赖
 
 > 用户跑 `task-26300-iso.json`（`convert.mode=full`）：转换器**成功产出了 4.3 GB ISO**，

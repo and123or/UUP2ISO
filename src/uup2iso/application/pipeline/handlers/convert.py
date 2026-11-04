@@ -312,14 +312,27 @@ class ConvertStageHandler:
             )
 
     def _relay(self, ctx: StageContext, event: object) -> None:
+        """转发转换器输出：**进度只显示、不落盘**（日志 §5.2）。
+
+        进度 → `ProgressHub`（GUI 进度条）+ `LogSink.progress()`（CLI stderr 渲染）；
+        普通行/结果行才交给 `LogSink` 落盘。
+        """
         kind = getattr(getattr(event, "kind", None), "value", "")
         text = getattr(event, "text", "")
+        if not isinstance(text, str) or not text.strip():
+            return
+
         if kind == "progress":
             progress: Any = ctx.progress
             if progress is not None:
                 progress.report("Convert", percent=None, message=text)
-        sink: Any = ctx.log
-        if sink is not None and isinstance(text, str) and text:
+            sink: Any = ctx.log
+            if sink is not None:
+                sink.progress("app.convert", text, stage="Convert")
+            return
+
+        sink = ctx.log
+        if sink is not None:
             sink.info("app.convert", text, stage="Convert", event="converter")
 
     async def _run_with_mount_guard(

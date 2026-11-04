@@ -1,5 +1,44 @@
 # CHANGELOG
 
+## 0.1.48 — 进度不再写入日志文件（日志 §5.2）
+
+> 用户指出：规范明确「转换进度不得写入日志」，但日志文件里仍有大量进度条目。
+
+### 根因（三层，缺一都会漏）
+| # | 位置 | 问题 |
+| --- | --- | --- |
+| 1 | `convert.py::_relay` | `if kind == "progress"` 分支只做了 `progress.report(...)`，**没有 return**，随后无条件 `sink.info(...)` → 进度行照样落盘。这是主因 |
+| 2 | `classifier.py` | `DEFAULT_PATTERN_SOURCE` **没有 `ToolKind.CONVERTER`**，转换器的 `48% complete`、`Archiving file data: … (16%) done` 全被归为 `line`；`OSCDIMG` 的正则 `^\s*\d+%` 也匹配不到 `62% complete` |
+| 3 | `LogSink` | 没有兜底：上游若把进度按 `info` 传来，照写不误 |
+
+### 修复
+- `_relay`：`progress` → `ProgressHub.report()`（GUI）+ `LogSink.progress()`（CLI stderr 渲染）后**立即返回**，不落盘。
+- `LogSink.progress()`：只走 mirror（控制台），**绝不写文件**；`log()` 增加兜底——字段 `kind=progress` 一律转 `progress()` 并返回。
+- 分类器新增 `ToolKind.CONVERTER` 的进度/结果正则，并补 `OSCDIMG` 的 `N% complete`。
+  结果正则只收 `Finished.` / `Done.` / `=== Done ===`，其余仍走普通行（可定位性优先）。
+
+### 验证（真实工具 + 旧日志重放）
+```
+真实 oscdimg 打 ISO：日志 13 行，全部是抬头/摘要/结果；进度行 0 行（控制台镜像里仍可见）
+旧日志 run_20261104-222955.log 重放 278 行 converter 输出：
+  判为 progress（不再落盘）174 行（62%）
+  仍落盘 104 行（配置、KB 版本、组件名、Finished.）
+  其中含百分比的仅 1 行：`Storage optimization saved 67 files, … (1% of image)`（结果摘要，允许）
+```
+
+### 规范澄清（日志 §5.2 / §9.4）
+「不含任何百分比」改为「不含**刷新型**进度」：判据是「同一内容是否随进度反复重写」，
+不是「是否出现 `%`」。一次性摘要（`saved … (1% of image)`、`image file is … bytes`）允许落盘。
+
+### 测试
+- `test_process_classify.py`（26）：新增 8 条转换器进度行 + 6 条非进度行 + 1 条「ERROR 含百分比不得丢」。
+- `test_convert_handler.py`（28）：新增「进度行不落盘而普通/结果行落盘」「`kind=progress` 兜底不落盘」。
+- `test_logging_sink.py`：`progress()` 签名兼容 `percent`（GUI 用）。
+- 全量：`pytest 全绿`；`mypy 124 files`；`ruff`/`format` 全绿。
+
+### 变更（文档）
+- `日志` v0.7 → **v0.8**：§5.2 增加边界澄清、§9.4 验收措辞同步。
+
 ## 0.1.47 — 产物名描述「装出来的系统」（默认模板 + build 语义调整）
 
 > 用户决策：数据源是 26H2（26300.9818），但**未集成更新**，所以产出其实是 24H2（26100.1）。

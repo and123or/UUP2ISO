@@ -221,6 +221,28 @@ class LogSink:
     def level_source(self) -> str:
         return self._level_source
 
+    def progress(
+        self,
+        logger_name: str = "",
+        message: str = "",
+        *,
+        percent: float | None = None,
+        stage: str | None = None,
+    ) -> None:
+        """进度类输出：**只显示、绝不落盘**（日志 §5.2）。
+
+        CLI 通过 mirror 渲染到 stderr；GUI 不挂 mirror，改为走 `ProgressHub`。
+        """
+        mirror = self._mirror
+        text = (message or "").strip()
+        if mirror is None or not text:
+            return
+        prefix = f"[{stage}] " if stage else ""
+        try:
+            mirror(f"{prefix}{text}")
+        except Exception:  # noqa: BLE001 - 控制台写失败不得影响主流程
+            return
+
     def set_mirror(self, mirror: Callable[[str], None] | None) -> None:
         """运行期挂上控制台镜像（CLI 用；GUI 不挂）。"""
         self._mirror = mirror
@@ -261,6 +283,10 @@ class LogSink:
         级别过滤只作用于 DEBUG/INFO；**WARN/ERROR 在任何级别下都写**（日志 §3）。
         """
         if self._closed or severity == AUDIT:
+            return
+        # 兜底：即便上游把进度按普通行传来，也绝不落盘（日志 §5.2）
+        if str(fields.get("kind", "")).lower() == "progress":
+            self.progress(logger_name, message, stage=stage)
             return
         if severity not in (WARN, ERROR) and level_rank(severity) < level_rank(self._level):
             return
@@ -342,12 +368,6 @@ class LogSink:
             raise AuditWriteError(f"审计写入失败：{exc}") from exc
 
     # -- 进度（绝不落盘） -------------------------------------------------
-
-    def progress(self, *_args: object, **_kwargs: object) -> None:
-        """进度**不写日志**（日志 §5.2）。保留此方法是让调用方语义明确。"""
-        return
-
-    # -- 工具调用头尾（进程 §10） -----------------------------------------
 
     def tool_started(
         self,

@@ -444,3 +444,75 @@ def test_converter_failure_triggers_mount_cleanup(tmp_path: Path, monkeypatch) -
         asyncio.run(handler.run(make_ctx(tmp_path, config)))
 
     assert calls == [1], "失败路径也要清理本次新增的挂载"
+
+
+# --- 进度不落盘（日志 §5.2）-------------------------------------------------
+
+
+def test_progress_lines_never_reach_log_file(tmp_path: Path) -> None:
+    """端到端：转换器输出里的进度行只显示、不落盘；普通行照常落盘。"""
+    import json as _json
+    from types import SimpleNamespace
+
+    from uup2iso.infrastructure.logging.sink import LogSink
+    from uup2iso.infrastructure.process.events import EventKind
+
+    config = make_config(tmp_path)
+    (tmp_path / "uups").mkdir()
+    paths = converter_paths(tmp_path / "tools", tmp_path / "work")
+    paths.root.mkdir(parents=True)
+    paths.entry.write_text("rem converter", encoding="utf-8")
+    paths.bin_dir.mkdir()
+
+    scripts = [
+        (EventKind.PROGRESS, "48% complete"),
+        (EventKind.PROGRESS, "Archiving file data: 219 MiB of 1315 MiB (16%) done"),
+        (EventKind.LINE, "=== Running UUP Converter v128m ==="),
+        (EventKind.PROGRESS, "99% complete"),
+        (EventKind.RESULT, "Finished."),
+    ]
+
+    class Rows:
+        async def run(self, spec: object, *, on_event=None, check: bool = True) -> object:
+            for kind, text in scripts:
+                if on_event is not None:
+                    on_event(SimpleNamespace(kind=kind, text=text))
+            return SimpleNamespace(returncode=0, last_lines=())
+
+    sink = LogSink.open(tmp_path / "logs", entry="cli", level="DEBUG", frozen=False)
+    mirrored: list[str] = []
+    sink.set_mirror(mirrored.append)
+    handler = ConvertStageHandler(
+        tools_dir=tmp_path / "tools", runner=Rows(), admin_check=lambda: True, log=sink
+    )
+    ctx = make_ctx(tmp_path, config)
+    ctx.log = sink
+    asyncio.run(handler.run(ctx))
+    sink.close()
+
+    logged = sink.paths.run.read_text(encoding="utf-8")
+    assert "%" not in logged.replace("100%", "100pct") or "complete" not in logged
+    assert "complete" not in logged, f"进度行不该落盘：{logged}"
+    assert "Archiving file data" not in logged
+    assert "Running UUP Converter" in logged, "普通行仍要落盘"
+    assert "Finished." in logged, "结果行仍要落盘"
+    # 进度行应出现在控制台镜像里（只显示）
+    assert any("48% complete" in line for line in mirrored)
+    _ = _json
+
+
+def test_sink_drops_progress_field(tmp_path: Path) -> None:
+    """兜底：上游若把进度按 info 传来（带 kind=progress），也不落盘。"""
+    from uup2iso.infrastructure.logging.sink import LogSink
+
+    sink = LogSink.open(tmp_path / "logs", entry="cli", level="DEBUG", frozen=False)
+    mirrored: list[str] = []
+    sink.set_mirror(mirrored.append)
+    sink.info("app.convert", "37% complete", stage="Convert", kind="progress")
+    sink.info("app.convert", "普通行", stage="Convert")
+    sink.close()
+
+    text = sink.paths.run.read_text(encoding="utf-8")
+    assert "complete" not in text
+    assert "普通行" in text
+    assert any("37% complete" in line for line in mirrored)

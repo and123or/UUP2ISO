@@ -5,6 +5,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from uup2iso.core.models.enums import ToolKind
 from uup2iso.infrastructure.process.classifier import LineClassifier
 from uup2iso.infrastructure.process.events import EventKind
@@ -91,3 +93,46 @@ def test_classifier_can_load_from_mapping() -> None:
     assert classifier.classify(ToolKind.DISM, "The operation completed successfully") is (
         EventKind.LINE
     )
+
+
+# --- 转换器（convert-UUP.cmd）的行分类 -------------------------------------
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "48% complete",
+        "  99% complete  ",
+        "Archiving file data: 219 MiB of 1315 MiB (16%) done",
+        "Archiving file data: 1315 MiB of 1315 MiB (100%) done",
+        "[==========            45.0%                        ]",
+        "Exporting image: 37%",
+        "Writing: 5%",
+        "17%",
+    ],
+)
+def test_converter_progress_lines(line: str) -> None:
+    """转换器的进度行必须判为 progress（否则会落盘，违反日志 §5.2）。"""
+    assert classify(ToolKind.CONVERTER, line) is EventKind.PROGRESS
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "Finished.",
+        "Done.",
+        "=== Running UUP Converter v128m ===",
+        "Windows11.0-KB5127936-x64.msu [MumX v2]",
+        "Adding winre.wim to install.wim",
+        "Storage optimization saved 67 files",
+    ],
+)
+def test_converter_non_progress_lines_stay_in_log(line: str) -> None:
+    """非进度行仍要落盘（可定位性优先）。"""
+    assert classify(ToolKind.CONVERTER, line) is not EventKind.PROGRESS
+
+
+def test_converter_error_line_is_not_swallowed() -> None:
+    """含 ERROR 且带百分比的异常行不能被当成进度丢掉。"""
+    kind = classify(ToolKind.CONVERTER, "ERROR: failed at 45% complete")
+    assert kind is not EventKind.PROGRESS

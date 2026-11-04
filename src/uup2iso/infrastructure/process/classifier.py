@@ -81,8 +81,21 @@ DEFAULT_PATTERN_SOURCE: dict[ToolKind, dict[str, tuple[str, ...]]] = {
         "result": (r"^Successfully (exported|applied|captured)",),
     },
     ToolKind.OSCDIMG: {
-        "progress": (r"^\s*\d+%",),
+        "progress": (r"^\s*\d{1,3}%\s*(complete)?\s*$", r"^\s*\d{1,3}%"),
         "result": (r"OSCDIMG 2\.\d+",),
+    },
+    # 转换器（convert-UUP.cmd + 内部 dism/wimlib 混合输出）——实测样本：
+    # `48% complete`、`Archiving file data: 219 MiB of 1315 MiB (16%) done`、
+    # `[==========  45.0%  ]`、`Exporting image: 37%`
+    ToolKind.CONVERTER: {
+        "progress": (
+            r"^\s*\d{1,3}%\s+complete\s*$",
+            r"^Archiving file data:.*\(\d{1,3}%\)\s*done\s*$",
+            r"^\s*\[\s*=*\s*\d{1,3}(\.\d+)?%\s*\]?",
+            r"^(Exporting|Importing|Applying|Scanning|Writing|Compressing)\b.*\d{1,3}%",
+            r"^\s*\d{1,3}(\.\d+)?%\s*$",
+        ),
+        "result": (r"^Finished\.?$", r"^Done\.?$", r"===\s*Done\s*==="),
     },
 }
 

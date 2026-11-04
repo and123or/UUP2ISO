@@ -324,3 +324,51 @@ def test_config_written_after_unpack_keeps_autostart(tmp_path: Path) -> None:
     write_config_ini(paths, options_from(config.convert))  # type: ignore[attr-defined]
     text = paths.ini.read_text(encoding="ascii")
     assert "AutoStart    =3" in text, "写入必须发生在解包之后"
+
+
+def test_image_only_mode_tolerates_missing_iso_skeleton(tmp_path: Path) -> None:
+    """AutoStart=3（仅 wim）时没有 ISOFOLDER 不算失败：install.wim 才是关键产物。"""
+    config = make_config(tmp_path)  # 默认 wim_only → AutoStart=3
+    (tmp_path / "uups").mkdir()
+    paths = converter_paths(tmp_path / "tools", tmp_path / "work")
+    paths.root.mkdir(parents=True)
+    paths.entry.write_text("rem converter", encoding="utf-8")
+    paths.bin_dir.mkdir()
+
+    class NoopRunner:
+        async def run(self, spec: object, *, on_event: object = None, check: bool = True) -> object:
+            from types import SimpleNamespace
+
+            return SimpleNamespace(returncode=0, last_lines=())
+
+    handler = ConvertStageHandler(
+        tools_dir=tmp_path / "tools", runner=NoopRunner(), admin_check=lambda: True
+    )
+    asyncio.run(handler.run(make_ctx(tmp_path, config)))
+
+    assert handler.outcome is not None
+    assert handler.outcome["install_wim"] is None, "没有产物时如实记录为空"
+
+
+def test_full_iso_mode_requires_skeleton(tmp_path: Path) -> None:
+    """AutoStart=1（出 ISO）时缺 ISOFOLDER 必须失败。"""
+    config = make_config(tmp_path)
+    config.convert.mode = "full"  # type: ignore[union-attr]
+    (tmp_path / "uups").mkdir()
+    paths = converter_paths(tmp_path / "tools", tmp_path / "work")
+    paths.root.mkdir(parents=True)
+    paths.entry.write_text("rem converter", encoding="utf-8")
+    paths.bin_dir.mkdir()
+
+    class NoopRunner:
+        async def run(self, spec: object, *, on_event: object = None, check: bool = True) -> object:
+            from types import SimpleNamespace
+
+            return SimpleNamespace(returncode=0, last_lines=())
+
+    handler = ConvertStageHandler(
+        tools_dir=tmp_path / "tools", runner=NoopRunner(), admin_check=lambda: True
+    )
+    with pytest.raises(StageExecutionError) as caught:
+        asyncio.run(handler.run(make_ctx(tmp_path, config)))
+    assert caught.value.code is ErrorCode.INPUT_DAMAGED

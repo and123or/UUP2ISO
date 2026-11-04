@@ -1,5 +1,27 @@
 # CHANGELOG
 
+## 0.1.37 — 仅映像模式放宽产物校验（修 0.1.36 之后仍会失败的一处）
+
+> 背景：用户按 0.1.36 修复后重跑前，复盘日志发现 Convert 在 2.5 s 内以 `INPUT_DAMAGED` 失败——
+> 解包其实成功、`convert-UUP.cmd` 与 `bin\` 都在，失败发生在**后续的 `skeleton` 子步骤**。
+
+### 修复
+- **`skeleton` / `bootwim` 按模式放宽**：`AutoStart=3/4`（仅出映像）时转换器可能不生成 `ISOFOLDER`
+  与 `boot.wim`，此前一律要求存在 → 误判 `INPUT_DAMAGED`。现在：
+  - 仅映像模式：缺失只记 `skeleton_absent` / `bootwim_absent` 事件（WARN 语义），**不失败**；
+  - 出 ISO 模式（`AutoStart=1/2`）：仍然必须存在，否则 `INPUT_DAMAGED`。
+  依据：`install.wim` 才是 `Output` 的唯一依赖，ISO 树只对 ISO 输出有意义。
+- **修 `self._log` 用法错误**：`ConvertStageHandler._log` 是**注入的日志对象**而非方法，
+  新增 `_emit(ctx, event, **fields)` 统一写事件（此前调用会 `TypeError: 'NoneType' not callable`）。
+
+### 测试
+- `test_convert_handler.py`（24）：新增「仅映像模式缺 ISOFOLDER 不失败」「出 ISO 模式缺 ISOFOLDER 必失败」。
+- 全量：`pytest 854 passed`；`mypy 121 files`；`ruff`/`format` 全绿。
+
+### 已知限制
+- 仅映像模式下若转换器连 `install.wim` 都没产出，`Convert` 仍会"成功"（只是 `outcome["install_wim"]=None`），
+  真正的失败会延迟到 `Output` 报"未找到 install.wim"。这是有意的分层，但日志里应同时看 `skeleton_absent`。
+
 ## 0.1.36 — 修复转换器集成：ini 顺序 / BOM / 管理员前置
 
 > 触发：用户首次真跑 `run`，Convert 阶段立刻失败，并弹出一个停在交互菜单的管理员窗口。

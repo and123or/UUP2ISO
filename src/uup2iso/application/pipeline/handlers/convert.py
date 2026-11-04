@@ -211,10 +211,23 @@ class ConvertStageHandler:
                     code=ErrorCode.PERMISSION_DENIED,
                 )
             await self._invoke(ctx, paths, source)
+        # 仅出映像（AutoStart=3/4）时，转换器可能不产 ISO 树 → 只告警，不判失败；
+        # 出 ISO（1/2）时必须存在。install.wim 才是 Output 的唯一依赖。
+        image_only = options.auto_start in (3, 4)
         if "skeleton" in executed:
-            _require_exists(paths.iso_folder, "ISO 骨架目录", "skeleton")
+            if paths.iso_folder.is_dir():
+                pass
+            elif image_only:
+                self._emit(ctx, "skeleton_absent", reason="image_only_mode")
+            else:
+                _require_exists(paths.iso_folder, "ISO 骨架目录", "skeleton")
         if "bootwim" in executed:
-            _require_any(paths.root, "boot.wim", "bootwim")
+            if _find_first(paths.root, "boot.wim") is not None:
+                pass
+            elif image_only:
+                self._emit(ctx, "bootwim_absent", reason="image_only_mode")
+            else:
+                _require_any(paths.root, "boot.wim", "bootwim")
 
         self.outcome = {
             "root": str(paths.root),
@@ -298,6 +311,12 @@ class ConvertStageHandler:
         sink: Any = ctx.log
         if sink is not None and isinstance(text, str) and text:
             sink.info("app.convert", text, stage="Convert", event="converter")
+
+    def _emit(self, ctx: StageContext, event: str, **fields: object) -> None:
+        """写一条事件（`self._log` 是注入的日志对象，不是方法）。"""
+        sink: Any = ctx.log if ctx.log is not None else self._log
+        if sink is not None:
+            sink.info("app.convert", event, stage="Convert", event=event, **fields)
 
     def _is_admin(self) -> bool:
         check = self._admin_check

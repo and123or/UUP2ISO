@@ -219,15 +219,20 @@ class ConvertStageHandler:
         # 仅出映像（AutoStart=3/4）时，转换器可能不产 ISO 树 → 只告警，不判失败；
         # 出 ISO（1/2）时必须存在。install.wim 才是 Output 的唯一依赖。
         image_only = options.auto_start in (3, 4)
+        # `AutoStart=1/2`（出 ISO）时转换器会把 ISOFOLDER 打成 ISO 再**删除骨架**，
+        # 所以「有 ISOFOLDER」或「已产出 ISO」都算合格（实测 2026-11-04 踩过）。
+        produced_iso = _find_first(paths.root, "*.iso") or _find_first(paths.root, "*.ISO")
         if "skeleton" in executed:
-            if paths.iso_folder.is_dir():
+            if paths.iso_folder.is_dir() or produced_iso is not None:
                 pass
             elif image_only:
                 self._emit(ctx, "skeleton_absent", reason="image_only_mode")
             else:
                 _require_exists(paths.iso_folder, "ISO 骨架目录", "skeleton")
         if "bootwim" in executed:
-            if _find_first(paths.root, "boot.wim") is not None:
+            if paths.iso_folder.is_dir() is False and produced_iso is not None:
+                pass  # boot.wim 已并入 ISO，骨架不再需要
+            elif _find_first(paths.root, "boot.wim") is not None:
                 pass
             elif image_only:
                 self._emit(ctx, "bootwim_absent", reason="image_only_mode")

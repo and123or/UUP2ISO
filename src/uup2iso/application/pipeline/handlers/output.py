@@ -381,6 +381,7 @@ class OutputStageHandler:
                 "ISO 骨架缺少引导文件（boot\\etfsboot.com 或 efi\\microsoft\\boot\\efisys.bin）",
                 code=ErrorCode.INPUT_DAMAGED,
             )
+        _require_iso_skeleton(folder)
         configured = getattr(ctx.config.convert, "volume_label", "") if ctx.config.convert else ""
         label = (configured or f"UUP2ISO_{name}")[:32]
         args = build_oscdimg_args(exe, folder, staging, label=label, bios_boot=bios, uefi_boot=uefi)
@@ -395,8 +396,9 @@ class OutputStageHandler:
     async def _verify_iso_layout(self, ctx: StageContext, iso: Path, source: Path) -> None:
         r"""L2：用 7-Zip 列 ISO，确认 `setup.exe` 与 `sources\install.*` 都在。"""
         seven = _seven_zip(self._tools_dir)
-        if not seven.is_file():
-            self._log(ctx, "iso_layout_skipped", reason="7zr_missing")
+        if seven is None:
+            # `7zr.exe` 是精简版，不支持 ISO/UDF；没有完整版 7z 时降级为只做 L1
+            self._log(ctx, "iso_layout_skipped", reason="no_full_7z")
             return
         rc, text = await self._run_collect(ctx, [str(seven), "l", str(iso)], stage="Output")
         if rc != 0:
@@ -649,6 +651,19 @@ def is_iso_file(path: Path) -> bool:
         return False
 
 
+def _require_iso_skeleton(folder: Path) -> None:
+    """打包前确认骨架里有 `setup.exe` 与 `sources\\install.*`（缺则 INPUT_DAMAGED）。"""
+    has_setup = (folder / "setup.exe").is_file()
+    sources = folder / "sources"
+    has_install = sources.is_dir() and any(
+        (sources / f"install{suffix}").is_file() for suffix in (".wim", ".esd", ".swm")
+    )
+    if has_setup and has_install:
+        return
+    missing = "setup.exe" if not has_setup else "sources\\install.*"
+    raise StageExecutionError(f"ISO 骨架缺少 {missing}", code=ErrorCode.INPUT_DAMAGED)
+
+
 def _boot_files(folder: Path) -> tuple[Path | None, Path | None]:
     """返回 `(BIOS 引导, UEFI 引导)`；缺失的为 None。"""
     bios = folder / "boot" / "etfsboot.com"
@@ -685,11 +700,16 @@ def _oscdimg_path(tools_dir: Path | None) -> Path:
     return base / "oscdimg.exe"
 
 
-def _seven_zip(tools_dir: Path | None) -> Path:
+def _seven_zip(tools_dir: Path | None) -> Path | None:
+    """完整版 7-Zip（`7z.exe` / `7za.exe`）；`7zr.exe` 不支持 ISO/UDF，不用于校验。"""
     from uup2iso.application.startup import program_dir
 
     base = tools_dir or program_dir() / "tools"
-    return base / "7zr.exe"
+    for name in ("7z.exe", "7za.exe"):
+        candidate = base / name
+        if candidate.is_file():
+            return candidate
+    return None
 
 
 def _wimlib_path(tools_dir: Path | None) -> Path:

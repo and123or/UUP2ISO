@@ -1,5 +1,38 @@
 # CHANGELOG
 
+## 0.1.45 — 修 full 模式误判 + ISO 校验依赖
+
+> 用户跑 `task-26300-iso.json`（`convert.mode=full`）：转换器**成功产出了 4.3 GB ISO**，
+> 但我们把阶段判成了失败。
+
+### 修复
+| # | 问题 | 根因 | 处理 |
+| --- | --- | --- | --- |
+| 1 | `full` 模式报 `INPUT_DAMAGED：skeleton 子步骤缺少 ISO 骨架目录` | `AutoStart=1/2` 时转换器把 `ISOFOLDER` 打成 ISO 后**删除骨架**（`convert-UUP.cmd:709`），而校验只认目录 | `skeleton`/`bootwim` 改为「有 ISOFOLDER **或** 已产出 ISO」都算合格 |
+| 2 | ISO 校验 `L2 失败：7z 无法列出 ISO（exit=2）` | `tools\7zr.exe` 是 7-Zip **精简版**，不支持 ISO/UDF | L2 只认完整版 `7z.exe`/`7za.exe`；只有 `7zr` 时降级跳过（L1 签名仍然保留）；另外在**打包前**校验骨架里有 `setup.exe` 与 `sources\install.*`（文件系统层面，可靠） |
+
+### 真实结果（同一份数据）
+```
+转换器日志：After optimization, image file is 4544223232 bytes / Finished.
+产物：output/professional_26300.9818_unknown_zh-cn.iso
+      4,544,223,232 字节（4.23 GB），CD001 签名 ✓，SHA256 cae764c4…，伴生 .sha256 + .readme.txt
+```
+
+### 需要用户知道的一点
+ISO 内部文件名是 `26100.1.240331-1435.GE_RELEASE_CLIENTPRO_OEMRET_X64FRE_ZH-CN.ISO` ——
+因为示例配置 `convert.updates.integrate=false`（不集成 4.6 GB 的 `KB5127936`），
+`install.wim` 仍是 **26100 基线**（24H2）。要得到 26300（26H2）需要开 `AddUpdates=1`，
+集成耗时会明显变长。
+
+### 测试
+- `test_output_handler.py`（25）通过；`test_convert_handler.py`（26）通过。
+- 全量：`pytest 全绿`；`mypy 123 files`；`ruff`/`format` 全绿。
+
+### 已知限制
+- 没有完整版 `7z.exe` 时，ISO 的 L2 退化为「打包前骨架检查 + L1 签名」；
+  想更严可把 `7z.exe` 放进 `tools\`。
+- `.gitignore` 增加 `output/`（默认输出目录不入库）。
+
 ## 0.1.44 — 修 UUP 目录统计漏计（Apps 子目录）
 
 > 现象：同一份数据，`Prepare` 输出 `99 个文件`，实际是 2947 个。

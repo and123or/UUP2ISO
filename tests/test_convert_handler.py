@@ -372,3 +372,75 @@ def test_full_iso_mode_requires_skeleton(tmp_path: Path) -> None:
     with pytest.raises(StageExecutionError) as caught:
         asyncio.run(handler.run(make_ctx(tmp_path, config)))
     assert caught.value.code is ErrorCode.INPUT_DAMAGED
+
+
+# --- 挂载残留防护 -----------------------------------------------------------
+
+
+def test_residual_mount_is_reported_but_not_touched(tmp_path: Path, monkeypatch) -> None:
+    """运行前已有挂载点：只记录，不清理（可能是用户自己的）。"""
+    from uup2iso.application.pipeline.handlers import convert as convert_mod
+    from uup2iso.infrastructure.wim.mount_guard import MountSnapshot
+
+    existing = MountSnapshot(dirs=(tmp_path / "MountUUP",))
+    cleaned: list[object] = []
+
+    monkeypatch.setattr(convert_mod, "residual_mount_dirs", lambda: existing)
+    monkeypatch.setattr(
+        convert_mod, "cleanup_new_mounts", lambda baseline, dism_exe=None, log=None: cleaned or ()
+    )
+
+    config = make_config(tmp_path)
+    (tmp_path / "uups").mkdir()
+    paths = converter_paths(tmp_path / "tools", tmp_path / "work")
+    paths.root.mkdir(parents=True)
+    paths.entry.write_text("rem converter", encoding="utf-8")
+    paths.bin_dir.mkdir()
+
+    class NoopRunner:
+        async def run(self, spec: object, *, on_event=None, check: bool = True) -> object:
+            from types import SimpleNamespace
+
+            return SimpleNamespace(returncode=0, last_lines=())
+
+    handler = ConvertStageHandler(
+        tools_dir=tmp_path / "tools", runner=NoopRunner(), admin_check=lambda: True
+    )
+    asyncio.run(handler.run(make_ctx(tmp_path, config)))
+
+    assert cleaned == [], "基线已有的挂载点不应被清理"
+
+
+def test_converter_failure_triggers_mount_cleanup(tmp_path: Path, monkeypatch) -> None:
+    """转换器失败时，仍要尝试清理本次新增的挂载点，并保留原始异常。"""
+    from uup2iso.application.pipeline.handlers import convert as convert_mod
+    from uup2iso.infrastructure.wim.mount_guard import MountSnapshot
+
+    calls: list[int] = []
+    monkeypatch.setattr(convert_mod, "residual_mount_dirs", lambda: MountSnapshot())
+    monkeypatch.setattr(
+        convert_mod,
+        "cleanup_new_mounts",
+        lambda baseline, dism_exe=None, log=None: (calls.append(1), ())[1],
+    )
+
+    config = make_config(tmp_path)
+    (tmp_path / "uups").mkdir()
+    paths = converter_paths(tmp_path / "tools", tmp_path / "work")
+    paths.root.mkdir(parents=True)
+    paths.entry.write_text("rem converter", encoding="utf-8")
+    paths.bin_dir.mkdir()
+
+    class Boom:
+        async def run(self, spec: object, *, on_event=None, check: bool = True) -> object:
+            from types import SimpleNamespace
+
+            return SimpleNamespace(returncode=1, last_lines=())
+
+    handler = ConvertStageHandler(
+        tools_dir=tmp_path / "tools", runner=Boom(), admin_check=lambda: True
+    )
+    with pytest.raises(StageExecutionError):
+        asyncio.run(handler.run(make_ctx(tmp_path, config)))
+
+    assert calls == [1], "失败路径也要清理本次新增的挂载"

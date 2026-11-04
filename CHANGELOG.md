@@ -1,5 +1,51 @@
 # CHANGELOG
 
+## 0.1.43 — 挂载残留防护 + ISO 输出（P2-2）
+
+> 两件事：① 用户要求的 `D:/MountUUP` 类残留防护；② 把 ISO 输出做完（`oscdimg` 已就位）。
+
+### 新增：挂载残留防护（`infrastructure/wim/mount_guard.py`）
+- `residual_mount_dirs()`：扫描各盘根下的 `MountUUP`，得出**运行前基线**；
+- `cleanup_new_mounts(baseline)`：结束后只清理**本次新增**的挂载点
+  （`dism /Unmount-Image /Discard` → `rmdir`），失败只 WARN；
+- Convert 在调用转换器前后使用：基线里已有的挂载点**一律不碰**（可能是用户自己的），
+  新增的才清；清理异常绝不掩盖原始异常。
+- 依据：`convert-UUP.cmd:221/4713` 把 scratch 设为 `%_drv%\W10UIuup`、挂载点设为 `%_drv%\MountUUP`，
+  中断时走不到卸载段（实测 2026-11-02 的残留即如此）。
+
+### 新增：ISO 输出（`OutputStageHandler`）
+- 来源优先级：① 转换器自产的 `convert/**.iso`（`AutoStart=1/2`）→ 直接复制；
+  ② `convert/ISOFOLDER` → 调 `oscdimg` 打包。
+- `oscdimg` 参数：`-b<etfsboot.com> -u2 -yo<efisys.bin> -m -o -h -l<卷标> <folder> <staging>`，
+  **所有路径绝对化**（进程 cwd 是任务工作目录，相对路径会解析错）。
+- 缺引导文件 → `INPUT_DAMAGED`（不产半成品）；卷标取 `convert.volume_label`，空则 `UUP2ISO_<name>`（≤32）。
+- 校验：L1 = 偏移 32769 的 `CD001` 签名 + 非空；L2 = `7zr l` 列出且含 `setup.exe` 与
+  `sources\\install.wim|esd`（缺 7zr 降级 WARN）。
+- 提交后缀按类型：`.iso` / `.esd` / `.wim`；`describe`/`file_operations` 同步展示 oscdimg 命令与 `.iso` 目标。
+
+### 真实验证
+```
+oscdimg 2.56 + 4 KB 假引导文件 + 1 MB 假 install.wim
+→ exit 0 "Done."，产物 1,734,656 字节，CD001 签名 ✓
+```
+
+### 测试
+- `test_output_handler.py`（25）：新增 ISO 分支 4 项（无源提示、打包并校验签名、缺引导拒绝、
+  `build_oscdimg_args` 形状），替换旧的「ISO 未实现」用例。
+- `test_convert_handler.py`（26）：新增挂载防护 2 项（基线不碰、失败也清理）。
+- 全量：`pytest 全绿`；`mypy 123 files`；`ruff`/`format` 全绿。
+
+### 变更（文档）
+- `输出` v0.4 → **v0.5**：新增 §6.2 ISO 产出方式（来源优先级、oscdimg 参数、校验判据）。
+- `现状与下一阶段计划` v1.6 → **v1.7**：P2-2 标 ✅；`术语表 §1.2` 同步。
+
+### 已知限制
+- ISO 输出**需要 `convert.mode=full`**（`AutoStart=1/2`）才能拿到 ISOFOLDER 或 ISO；
+  当前示例配置是 `wim_only`，出 ISO 前要改。
+- 挂载防护只认 `%_drv%\MountUUP` 这一种目录名（转换器当前命名）；转换器改版需同步。
+- `oscdimg` 打包 3.5 GB 约 1–3 分钟，进度只在日志（stderr 的 `% complete` 被驱动捕获）。
+- ISO 的 L2 只查关键文件存在，不校验卷标与引导扇区内容（L3 需挂载，未做）。
+
 ## 0.1.42 — 路径审计：清除写死路径与 CWD 依赖
 
 > 用户要求「检查程序中是否还有其它写死的路径」。按 6 类模式全量扫描 `src/**/*.py` 并逐个修复。

@@ -51,6 +51,16 @@ _MAX_SUFFIX = 999
 
 
 @dataclass(frozen=True, slots=True)
+class OutputSource:
+    """输出源：一个成品文件，或一个待打包的目录（ISO 用）。"""
+
+    path: Path
+    is_dir: bool = False
+    kind: str = "wim"
+    """`wim` / `esd` / `iso`（由输出类型决定）。"""
+
+
+@dataclass(frozen=True, slots=True)
 class OutputArtifact:
     """一次输出提交的结果。"""
 
@@ -103,7 +113,7 @@ class OutputStageHandler:
         config = ctx.config
         source = self._locate_source(ctx)
         output_dir = self._resolve_output_dir(config)
-        name = self._compose_name(ctx, config, source)
+        name = self._compose_name(ctx, config, source.path)
 
         staging_root = output_dir / _STAGING_DIR / ctx.task_id
         staging = staging_root / f"{name}.part"
@@ -114,7 +124,10 @@ class OutputStageHandler:
         digest: str | None = None
         if "package" in executed:
             staging_root.mkdir(parents=True, exist_ok=True)
-            digest = _copy_with_digest(source, staging)
+            if source.is_dir:
+                digest = await self._pack_iso(ctx, source.path, staging, name)
+            else:
+                digest = _copy_with_digest(source.path, staging)
 
         if "verify" in executed:
             if digest is None:
@@ -127,7 +140,7 @@ class OutputStageHandler:
             await self._commit(ctx, staging, output_dir, name, digest)
         elif self.outcome is None and staging.is_file():
             self.outcome = OutputArtifact(
-                source=source,
+                source=source.path,
                 staging=staging,
                 final=staging,
                 size=staging.stat().st_size,
@@ -141,19 +154,37 @@ class OutputStageHandler:
         try:
             source = self._locate_source(ctx)
             output_dir = self._resolve_output_dir(config)
-            name = self._compose_name(ctx, config, source)
+            name = self._compose_name(ctx, config, source.path)
         except StageExecutionError as exc:
             return (f"# 尚未就绪：{exc.message}",)
 
         staging = output_dir / _STAGING_DIR / ctx.task_id / f"{name}.part"
-        commands = [
-            f'copy "{source}" → "{staging}"（fsync）',
-            f'wimlib-imagex info "{staging}"   # L2：可解析 + 索引唯一',
-        ]
-        if config.output.verify_level >= 3:
-            commands.append(f'wimlib-imagex verify "{staging}"   # L3（已勾选）')
-        commands.append(f'rename("{staging}", "{output_dir / (name + ".wim")}")  # 原子落位')
-        commands.append(f'写伴生 "{output_dir / (name + ".wim.sha256")}" 与 readme')
+        suffix = {OutputType.ISO: ".iso", OutputType.ESD: ".esd"}.get(config.output.type, ".wim")
+        final = output_dir / f"{name}{suffix}"
+
+        if source.is_dir:
+            bios, uefi = _boot_files(source.path)
+            parts = [_oscdimg_path(self._tools_dir).name]
+            if bios is not None:
+                parts.append(f"-b{bios.name}（BIOS 引导）")
+            if uefi is not None:
+                parts.extend(["-u2", f"-yo{uefi.name}（UEFI 引导）"])
+            parts.extend(["-m", "-o", "-h", "-l<卷标>", "", f'"{source.path}" "{staging}"'])
+            commands = [
+                " ".join(item for item in parts if item),
+                f'7zr l "{staging}"   # L2：setup.exe + sources\\install.*',
+                "# L1：偏移 32769 处应有 CD001 签名",
+            ]
+        else:
+            commands = [
+                f'copy "{source.path}" → "{staging}"（fsync）',
+                f'wimlib-imagex info "{staging}"   # L2：可解析 + 索引唯一',
+            ]
+            if config.output.verify_level >= 3:
+                commands.append(f'wimlib-imagex verify "{staging}"   # L3（已勾选）')
+
+        commands.append(f'rename("{staging}", "{final}")  # 原子落位')
+        commands.append(f'写伴生 "{final.name}.sha256" 与 readme')
         return tuple(commands)
 
     def file_operations(self, ctx: StageContext) -> tuple[FileOp, ...]:
@@ -161,16 +192,17 @@ class OutputStageHandler:
         try:
             source = self._locate_source(ctx)
             output_dir = self._resolve_output_dir(config)
-            name = self._compose_name(ctx, config, source)
+            name = self._compose_name(ctx, config, source.path)
         except StageExecutionError:
             return ()
         staging = output_dir / _STAGING_DIR / ctx.task_id / f"{name}.part"
-        final = output_dir / f"{name}.wim"
+        suffix = {OutputType.ISO: ".iso", OutputType.ESD: ".esd"}.get(config.output.type, ".wim")
+        final = output_dir / f"{name}{suffix}"
         return (
-            FileOp("read", str(source), "转换产物（只读）"),
+            FileOp("read", str(source.path), "转换产物（只读）"),
             FileOp("create", str(staging), "暂存区（校验通过才改名）"),
             FileOp("create", str(final), "最终产物"),
-            FileOp("create", str(final.with_suffix(".wim.sha256")), "伴生哈希"),
+            FileOp("create", str(final.with_name(final.name + ".sha256")), "伴生哈希"),
             FileOp("create", str(output_dir / f"{name}.readme.txt"), "伴生说明"),
         )
 
@@ -179,29 +211,44 @@ class OutputStageHandler:
 
     # -- assemble ---------------------------------------------------------
 
-    def _locate_source(self, ctx: StageContext) -> Path:
-        """转换产物：优先 install.wim（P2-1 只支持 WIM）。"""
+    def _locate_source(self, ctx: StageContext) -> OutputSource:
+        """定位输出源。
+
+        * `wim`/`esd`：转换器产出的 `install.wim` / `install.esd`；
+        * `iso`：优先用转换器自己产出的 `.iso`（`AutoStart=1/2`）；
+          否则若有 `ISOFOLDER` 目录，则由本处理器调 `oscdimg` 打包。
+        """
         output_type = ctx.config.output.type
+        convert_dir = ctx.work_dir / "convert"
+
         if output_type is OutputType.ISO:
+            produced = _first(convert_dir, "*.iso")
+            if produced is not None:
+                return OutputSource(path=produced, kind="iso")
+            folder = convert_dir / "ISOFOLDER"
+            if folder.is_dir():
+                return OutputSource(path=folder, is_dir=True, kind="iso")
             raise StageExecutionError(
-                "ISO 输出属 P2-2（尚未实现）；当前只支持 type=wim",
-                code=ErrorCode.OUTPUT_TYPE_UNSUPPORTED,
+                "未找到 ISO 或 ISOFOLDER：请先把 convert.mode 设为 full（AutoStart=1）完成转换，"
+                "或在支持的模式下产出 ISO 目录",
+                code=ErrorCode.INPUT_UNREADABLE,
             )
+
         if output_type is OutputType.ESD:
-            found = _first(ctx.work_dir / "convert", "install.esd")
+            found = _first(convert_dir, "install.esd")
             if found is None:
                 raise StageExecutionError(
                     "未找到 install.esd：请先跑 Convert", code=ErrorCode.INPUT_UNREADABLE
                 )
-            return found
+            return OutputSource(path=found, kind="esd")
 
-        found = _first(ctx.work_dir / "convert", "install.wim")
+        found = _first(convert_dir, "install.wim")
         if found is None:
             raise StageExecutionError(
                 "未找到 install.wim：请先跑 Convert（或指定入口 B 并完成转换）",
                 code=ErrorCode.INPUT_UNREADABLE,
             )
-        return found
+        return OutputSource(path=found, kind="wim")
 
     def _resolve_output_dir(self, config: TaskConfig) -> Path:
         """输出目录：空 → 程序目录下的 output；相对 → 相对程序目录；绝对 → 原样。
@@ -251,14 +298,14 @@ class OutputStageHandler:
         }
         return render_name(template, values)
 
-    def _preflight(self, source: Path, output_dir: Path, staging: Path) -> None:
+    def _preflight(self, source: OutputSource, output_dir: Path, staging: Path) -> None:
         """空间与同卷预检；**失败时不创建任何目录**。"""
         if staging.drive.lower() != output_dir.drive.lower():
             raise StageExecutionError(
                 f"暂存区与输出目录不在同一磁盘：{staging.drive} ≠ {output_dir.drive}",
                 code=ErrorCode.OUTPUT_CROSS_VOLUME,
             )
-        size = source.stat().st_size
+        size = _source_size(source.path)
         if size <= 0:
             raise StageExecutionError(f"产物为空：{source}", code=ErrorCode.OUTPUT_VERIFY_FAILED)
         needed = int(size * 1.05) + 16 * 1024 * 1024
@@ -272,16 +319,29 @@ class OutputStageHandler:
     # -- verify -----------------------------------------------------------
 
     async def _verify(
-        self, ctx: StageContext, staging: Path, source: Path, digest: str, *, level: int
+        self, ctx: StageContext, staging: Path, source: OutputSource, digest: str, *, level: int
     ) -> None:
         if not staging.is_file():
             raise StageExecutionError(
                 f"暂存产物不存在：{staging}", code=ErrorCode.OUTPUT_VERIFY_FAILED
             )
         size = staging.stat().st_size
-        if size != source.stat().st_size:
+        if size <= 0:
+            raise StageExecutionError("L1 失败：产物为空", code=ErrorCode.OUTPUT_VERIFY_FAILED)
+
+        if source.kind == "iso":
+            if not is_iso_file(staging):
+                raise StageExecutionError(
+                    "L1 失败：ISO 签名缺失（偏移 32769 处无 CD001）",
+                    code=ErrorCode.OUTPUT_VERIFY_FAILED,
+                )
+            if level >= 2:
+                await self._verify_iso_layout(ctx, staging, source.path)
+            return
+
+        if source.path.is_file() and size != source.path.stat().st_size:
             raise StageExecutionError(
-                f"L1 失败：暂存大小 {size} ≠ 源 {source.stat().st_size}",
+                f"L1 失败：暂存大小 {size} ≠ 源 {source.path.stat().st_size}",
                 code=ErrorCode.OUTPUT_VERIFY_FAILED,
             )
 
@@ -307,6 +367,72 @@ class OutputStageHandler:
                     code=ErrorCode.OUTPUT_VERIFY_FAILED,
                 )
             self._log(ctx, "output_validated", verify_level=3, sha256=digest[:12])
+
+    async def _pack_iso(self, ctx: StageContext, folder: Path, staging: Path, name: str) -> str:
+        """用 `oscdimg` 把 ISOFOLDER 打成 ISO（写到暂存名），返回 SHA256。"""
+        exe = _oscdimg_path(self._tools_dir)
+        if not exe.is_file():
+            raise StageExecutionError(
+                f"未找到 oscdimg：{exe}（需要 ADK 的 oscdimg.exe）", code=ErrorCode.TOOL_MISSING
+            )
+        bios, uefi = _boot_files(folder)
+        if bios is None and uefi is None:
+            raise StageExecutionError(
+                "ISO 骨架缺少引导文件（boot\\etfsboot.com 或 efi\\microsoft\\boot\\efisys.bin）",
+                code=ErrorCode.INPUT_DAMAGED,
+            )
+        configured = getattr(ctx.config.convert, "volume_label", "") if ctx.config.convert else ""
+        label = (configured or f"UUP2ISO_{name}")[:32]
+        args = build_oscdimg_args(exe, folder, staging, label=label, bios_boot=bios, uefi_boot=uefi)
+        rc, _ = await self._run_collect(ctx, args, stage="Output")
+        if rc != 0:
+            raise StageExecutionError(
+                f"oscdimg 失败（exit={rc}），详见日志", code=ErrorCode.TOOL_FAILED
+            )
+        self._log(ctx, "iso_packed", label=label, size=staging.stat().st_size)
+        return _sha256_of(staging)
+
+    async def _verify_iso_layout(self, ctx: StageContext, iso: Path, source: Path) -> None:
+        r"""L2：用 7-Zip 列 ISO，确认 `setup.exe` 与 `sources\install.*` 都在。"""
+        seven = _seven_zip(self._tools_dir)
+        if not seven.is_file():
+            self._log(ctx, "iso_layout_skipped", reason="7zr_missing")
+            return
+        rc, text = await self._run_collect(ctx, [str(seven), "l", str(iso)], stage="Output")
+        if rc != 0:
+            raise StageExecutionError(
+                f"L2 失败：7z 无法列出 ISO（exit={rc}）", code=ErrorCode.OUTPUT_VERIFY_FAILED
+            )
+        lower = text.lower().replace("/", "\\")
+        missing = [
+            name for name in ("setup.exe", "install.wim", "install.esd") if name not in lower
+        ]
+        if "setup.exe" in missing or len(missing) == 3:
+            raise StageExecutionError(
+                "L2 失败：ISO 内缺少 setup.exe 或 sources\\install.*",
+                code=ErrorCode.OUTPUT_VERIFY_FAILED,
+            )
+        self._log(ctx, "iso_layout_ok", source=str(source))
+
+    async def _run_collect(
+        self, ctx: StageContext, args: list[str], *, stage: str
+    ) -> tuple[int, str]:
+        """跑一个外部命令并收集全部输出行（不依赖 ProcessResult.last_lines）。"""
+        if self._runner is None:
+            raise StageExecutionError(
+                "Output 缺少 ProcessRunner（组合根未接线）", code=ErrorCode.INTERNAL_ERROR
+            )
+        tool = ToolKind.OSCDIMG if "oscdimg" in args[0].lower() else ToolKind.SEVEN_ZIP
+        lines: list[str] = []
+
+        def _collect(event: object) -> None:
+            text = getattr(event, "text", "")
+            if isinstance(text, str) and text:
+                lines.append(text)
+
+        spec = RunSpec(tool=tool, args=tuple(args), cwd=ctx.work_dir, stage=stage)
+        result = await self._runner.run(spec, on_event=_collect, check=False)
+        return int(getattr(result, "returncode", 0)), "\n".join(lines)
 
     async def _wimlib(self, ctx: StageContext, verb: str, target: Path) -> tuple[int, str]:
         """跑一次 wimlib，返回 ``(返回码, 合并后的输出文本)``。
@@ -341,7 +467,10 @@ class OutputStageHandler:
         self, ctx: StageContext, staging: Path, output_dir: Path, name: str, digest: str
     ) -> None:
         config = ctx.config
-        suffix = ".esd" if config.output.type is OutputType.ESD else ".wim"
+        suffix = {
+            OutputType.ISO: ".iso",
+            OutputType.ESD: ".esd",
+        }.get(config.output.type, ".wim")
         final, renamed = resolve_collision(
             output_dir, name + suffix, strategy=config.output.collision
         )
@@ -495,6 +624,72 @@ def _sha256_of(path: Path) -> str:
 def _count_images(stdout: str | None) -> int:
     match = re.search(r"Image Count:\s*(\d+)", stdout or "")
     return int(match.group(1)) if match else 0
+
+
+def _source_size(path: Path) -> int:
+    """源体积：文件取自身，目录取递归求和（ISO 骨架用）。"""
+    if path.is_file():
+        return path.stat().st_size
+    if path.is_dir():
+        return sum(item.stat().st_size for item in path.rglob("*") if item.is_file())
+    return 0
+
+
+ISO_SIGNATURE_OFFSET = 32769
+ISO_SIGNATURE = b"CD001"
+
+
+def is_iso_file(path: Path) -> bool:
+    """按文件头判断 ISO（偏移 32769 处 `CD001`，与输入嗅探同一判据）。"""
+    try:
+        with path.open("rb") as handle:
+            handle.seek(ISO_SIGNATURE_OFFSET)
+            return handle.read(len(ISO_SIGNATURE)) == ISO_SIGNATURE
+    except OSError:
+        return False
+
+
+def _boot_files(folder: Path) -> tuple[Path | None, Path | None]:
+    """返回 `(BIOS 引导, UEFI 引导)`；缺失的为 None。"""
+    bios = folder / "boot" / "etfsboot.com"
+    uefi = folder / "efi" / "microsoft" / "boot" / "efisys.bin"
+    return (bios if bios.is_file() else None, uefi if uefi.is_file() else None)
+
+
+def build_oscdimg_args(
+    exe: Path,
+    folder: Path,
+    target: Path,
+    *,
+    label: str,
+    bios_boot: Path | None,
+    uefi_boot: Path | None,
+) -> list[str]:
+    """构造 oscdimg 命令行（BIOS/UEFI 双启动；`-m -o -h` 为标准组合）。"""
+    # 全部转绝对路径：ProcessRunner 的 cwd 是任务工作目录，相对路径会解析错
+    args = [str(exe)]
+    if bios_boot is not None:
+        args.append(f"-b{Path(bios_boot).resolve()}")
+    if uefi_boot is not None:
+        args.extend(["-u2", f"-yo{Path(uefi_boot).resolve()}"])
+    args.extend(
+        ["-m", "-o", "-h", f"-l{label}", str(Path(folder).resolve()), str(Path(target).resolve())]
+    )
+    return args
+
+
+def _oscdimg_path(tools_dir: Path | None) -> Path:
+    from uup2iso.application.startup import program_dir
+
+    base = tools_dir or program_dir() / "tools"
+    return base / "oscdimg.exe"
+
+
+def _seven_zip(tools_dir: Path | None) -> Path:
+    from uup2iso.application.startup import program_dir
+
+    base = tools_dir or program_dir() / "tools"
+    return base / "7zr.exe"
 
 
 def _wimlib_path(tools_dir: Path | None) -> Path:

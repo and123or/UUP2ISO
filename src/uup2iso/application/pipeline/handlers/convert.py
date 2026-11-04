@@ -33,6 +33,11 @@ from uup2iso.core.models.enums import CompressionKind, EntryPoint, ToolKind
 from uup2iso.core.models.pipeline import StageKind
 from uup2iso.infrastructure.process.backend import RunSpec
 from uup2iso.infrastructure.process.runner import ProcessRunner
+from uup2iso.infrastructure.wim.mount_guard import (
+    MountSnapshot,
+    cleanup_new_mounts,
+    residual_mount_dirs,
+)
 
 __all__ = ["ConvertOptions", "ConvertStageHandler", "converter_paths"]
 
@@ -210,7 +215,7 @@ class ConvertStageHandler:
                     "请以管理员身份重新运行本程序。",
                     code=ErrorCode.PERMISSION_DENIED,
                 )
-            await self._invoke(ctx, paths, source)
+            await self._run_with_mount_guard(ctx, paths, source)
         # 仅出映像（AutoStart=3/4）时，转换器可能不产 ISO 树 → 只告警，不判失败；
         # 出 ISO（1/2）时必须存在。install.wim 才是 Output 的唯一依赖。
         image_only = options.auto_start in (3, 4)
@@ -312,6 +317,39 @@ class ConvertStageHandler:
         if sink is not None and isinstance(text, str) and text:
             sink.info("app.convert", text, stage="Convert", event="converter")
 
+    async def _run_with_mount_guard(
+        self, ctx: StageContext, paths: ConverterPaths, source: Path
+    ) -> None:
+        r"""调用转换器，并在前后守住 `%_drv%\MountUUP` 残留。
+
+        * 运行前记录基线：**用户已存在的挂载点一律不碰**；
+        * 运行后（无论成功/失败）只清理**本次新增**的挂载点；
+        * 清理失败只 WARN，不掩盖原始异常。
+        """
+        baseline = residual_mount_dirs()
+        if baseline.dirs:
+            self._emit(
+                ctx,
+                "mount_residual_detected",
+                count=len(baseline.dirs),
+                dirs=";".join(str(item) for item in baseline.dirs[:2]),
+            )
+        try:
+            await self._invoke(ctx, paths, source)
+        except BaseException:
+            self._cleanup_mounts(ctx, baseline)
+            raise
+        self._cleanup_mounts(ctx, baseline)
+
+    def _cleanup_mounts(self, ctx: StageContext, baseline: MountSnapshot) -> None:
+        try:
+            cleaned = cleanup_new_mounts(baseline, dism_exe=_dism_exe(), log=ctx.log)
+        except OSError as exc:  # 清理绝不能把主流程带崩
+            self._emit(ctx, "mount_cleanup_failed", reason=type(exc).__name__)
+            return
+        if cleaned:
+            self._emit(ctx, "mount_cleaned", count=len(cleaned))
+
     def _emit(self, ctx: StageContext, event: str, **fields: object) -> None:
         """写一条事件（`self._log` 是注入的日志对象，不是方法）。"""
         sink: Any = ctx.log if ctx.log is not None else self._log
@@ -334,6 +372,14 @@ class ConvertStageHandler:
 # ---------------------------------------------------------------------------
 # 辅助（预演与执行共用）
 # ---------------------------------------------------------------------------
+
+
+def _dism_exe() -> Path:
+    """系统 DISM（卸载挂载点用；34 位/64 位都在 System32）。"""
+    import os
+
+    root = os.environ.get("SYSTEMROOT") or r"C:/Windows"
+    return Path(root) / "System32" / "Dism.exe"
 
 
 def _default_tools_dir() -> Path:

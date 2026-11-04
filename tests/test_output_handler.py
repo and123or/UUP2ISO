@@ -16,6 +16,7 @@ from uup2iso.application.pipeline.handlers import OutputStageHandler
 from uup2iso.application.pipeline.handlers.output import (
     OutputArtifact,
     _count_images,
+    is_iso_file,
     render_name,
     resolve_collision,
 )
@@ -54,6 +55,33 @@ class FakeRunner:
                 on_event(SimpleNamespace(text=text))
         rc = self.info_rc if verb == "info" else self.verify_rc
         return SimpleNamespace(returncode=rc, last_lines=tuple(lines))
+
+
+class IsoRunner(FakeRunner):
+    """假 oscdimg：按最后一个参数写一个带 ISO 签名的小文件。"""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.last_args: list[str] = []
+
+    async def run(self, spec: object, *, on_event: object = None, check: bool = True) -> object:
+        args = [str(item) for item in spec.args]
+        self.calls.append(tuple(args))
+        if "7zr" in args[0].lower():
+            # 假 7-Zip 列表：含关键文件，供 L2 布局校验
+            if on_event is not None:
+                for text in ("setup.exe", " sources\\install.wim", " boot\\etfsboot.com"):
+                    on_event(SimpleNamespace(text=text))
+            return SimpleNamespace(returncode=0, last_lines=("setup.exe",))
+        self.last_args = args
+        target = Path(args[-1])
+        target.parent.mkdir(parents=True, exist_ok=True)
+        payload = bytearray(40000)
+        payload[32769:32774] = b"CD001"
+        target.write_bytes(bytes(payload))
+        if on_event is not None:
+            on_event(SimpleNamespace(text="OSCDIMG 2.56"))
+        return SimpleNamespace(returncode=0, last_lines=("OSCDIMG",))
 
 
 def make_config(tmp_path: Path, *, output_type: OutputType = OutputType.WIM) -> object:
@@ -156,14 +184,82 @@ def test_missing_wim_is_reported(tmp_path: Path) -> None:
     assert "install.wim" in caught.value.message
 
 
-def test_iso_type_is_not_implemented(tmp_path: Path) -> None:
+def test_iso_without_folder_or_iso_is_unreadable(tmp_path: Path) -> None:
+    """ISO 模式但既没有转换器产的 ISO、也没有 ISOFOLDER → 提示先跑 full 模式。"""
     config = make_config(tmp_path, output_type=OutputType.ISO)
-    make_wim(tmp_path / "work")
     handler = OutputStageHandler(runner=FakeRunner(), tools_dir=tmp_path / "tools")
 
     with pytest.raises(StageExecutionError) as caught:
         asyncio.run(handler.run(make_ctx(tmp_path, config)))
-    assert caught.value.code is ErrorCode.OUTPUT_TYPE_UNSUPPORTED
+    assert caught.value.code is ErrorCode.INPUT_UNREADABLE
+    assert "ISOFOLDER" in caught.value.message
+
+
+def test_iso_packed_from_folder(tmp_path: Path) -> None:
+    """有 ISOFOLDER 时用 oscdimg 打包，并校验 ISO 签名。"""
+    config = make_config(tmp_path, output_type=OutputType.ISO)
+    wim = make_wim(tmp_path / "work")
+    folder = wim.parent.parent  # ISOFOLDER
+    (folder / "boot").mkdir(exist_ok=True)
+    (folder / "boot" / "etfsboot.com").write_bytes(b"BIOS")
+    efi = folder / "efi" / "microsoft" / "boot"
+    efi.mkdir(parents=True)
+    (efi / "efisys.bin").write_bytes(b"UEFI")
+    (folder / "setup.exe").write_bytes(b"SETUP")
+
+    tools = tmp_path / "tools"
+    tools.mkdir()
+    (tools / "oscdimg.exe").write_bytes(b"MZ")
+    (tools / "7zr.exe").write_bytes(b"MZ")
+
+    runner = IsoRunner()
+    handler = OutputStageHandler(runner=runner, tools_dir=tools)
+    asyncio.run(handler.run(make_ctx(tmp_path, config)))
+
+    outcome = handler.outcome
+    assert outcome.final.suffix == ".iso"
+    assert outcome.final.stat().st_size > 32774, "应写入带签名的 ISO"
+    assert is_iso_file(outcome.final)
+    assert any("-u2" in arg for arg in runner.last_args), "双启动需 -u2 + -yo"
+    assert any(arg.startswith("-letfsboot") for arg in str(runner.last_args) for _ in [0]) or any(
+        arg.startswith("-b") for arg in runner.last_args
+    )
+
+
+def test_iso_missing_boot_files_is_rejected(tmp_path: Path) -> None:
+    config = make_config(tmp_path, output_type=OutputType.ISO)
+    wim = make_wim(tmp_path / "work")
+    folder = wim.parent.parent  # 没有 boot/ 与 efi/
+    (folder / "setup.exe").write_bytes(b"SETUP")
+    tools = tmp_path / "tools"
+    tools.mkdir()
+    (tools / "oscdimg.exe").write_bytes(b"MZ")
+
+    handler = OutputStageHandler(runner=FakeRunner(), tools_dir=tools)
+    with pytest.raises(StageExecutionError) as caught:
+        asyncio.run(handler.run(make_ctx(tmp_path, config)))
+    assert caught.value.code is ErrorCode.INPUT_DAMAGED
+
+
+def test_oscdimg_args_shape(tmp_path: Path) -> None:
+    from uup2iso.application.pipeline.handlers.output import build_oscdimg_args
+
+    exe = tmp_path / "oscdimg.exe"
+    args = build_oscdimg_args(
+        exe,
+        tmp_path / "folder",
+        tmp_path / "out.iso",
+        label="LABEL1",
+        bios_boot=tmp_path / "etfsboot.com",
+        uefi_boot=tmp_path / "efisys.bin",
+    )
+
+    assert args[0] == str(exe)
+    assert any(arg.startswith("-b") for arg in args)
+    assert "-u2" in args and any(arg.startswith("-yo") for arg in args)
+    assert "-m" in args and "-o" in args and "-h" in args
+    assert "-lLABEL1" in args
+    assert args[-2:] == [str(tmp_path / "folder"), str(tmp_path / "out.iso")]
 
 
 def test_empty_output_dir_defaults_to_program_dir(

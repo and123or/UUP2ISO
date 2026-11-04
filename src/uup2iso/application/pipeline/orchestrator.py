@@ -178,12 +178,16 @@ class PipelineOrchestrator:
         cleanup: CleanupHook | None = None,
         sleep: Callable[[float], Awaitable[None]] | None = None,
         clock: Callable[[], float] | None = None,
+        session: object | None = None,
+        heartbeat_interval: float = 60.0,
     ) -> None:
         self._handlers = dict(handlers)
         self._retry = retry or RetryPolicy()
         self._cleanup = cleanup
         self._sleep = sleep or _async_sleep
         self._clock = clock or time.monotonic
+        self._session = session
+        self._heartbeat_interval = heartbeat_interval
 
     # ------------------------------------------------------------------
     # 执行
@@ -217,6 +221,7 @@ class PipelineOrchestrator:
         outcomes: list[StageOutcome] = []
         cancelled = False
         failed: BaseException | None = None
+        heartbeat = self._start_heartbeat()
 
         self._log(
             log,
@@ -241,6 +246,7 @@ class PipelineOrchestrator:
                         skip_reason=stage_plan.skip_reason,
                     )
                 )
+                self._mark_stage(stage_plan.stage.value, "skipped", stage_plan.skip_reason)
                 self._log(
                     log,
                     "阶段跳过",
@@ -249,6 +255,8 @@ class PipelineOrchestrator:
                     reason=stage_plan.skip_reason,
                 )
                 continue
+
+            self._mark_stage(stage_plan.stage.value, "begin")
 
             handler = self._handlers.get(stage_plan.stage)
             if handler is None:
@@ -270,6 +278,8 @@ class PipelineOrchestrator:
             )
             outcomes.append(outcome)
 
+            self._mark_stage(stage_plan.stage.value, outcome.status)
+
             if outcome.status == STATUS_CANCELLED:
                 cancelled = True
                 break
@@ -277,6 +287,8 @@ class PipelineOrchestrator:
                 failed = outcome.error
                 break
 
+        self._stop_heartbeat(heartbeat)
+        self._finish_session(outcomes, cancelled=cancelled, failed=failed)
         duration = self._clock() - started
         if cancelled:
             self._log(
@@ -336,6 +348,7 @@ class PipelineOrchestrator:
                 cancel=cancel,  # type: ignore[arg-type]
                 log=log,
                 progress=progress,
+                session=self._session,
             )
             self._log(
                 log,
@@ -476,6 +489,8 @@ class PipelineOrchestrator:
                 )
                 continue
 
+            self._mark_stage(stage_plan.stage.value, "begin")
+
             handler = self._handlers.get(stage_plan.stage)
             if handler is None:
                 stages.append(
@@ -521,6 +536,69 @@ class PipelineOrchestrator:
     # ------------------------------------------------------------------
     # 内部
     # ------------------------------------------------------------------
+
+    # -- 会话与心跳 -------------------------------------------------------
+
+    def _start_heartbeat(self) -> object | None:
+        """启动 60 秒心跳（G2）。无会话时返回 None。"""
+        if self._session is None:
+            return None
+        import asyncio
+
+        async def _loop() -> None:
+            while True:
+                await self._sleep(self._heartbeat_interval)
+                beat = getattr(self._session, "heartbeat", None)
+                if callable(beat):
+                    beat()
+
+        return asyncio.create_task(_loop())
+
+    def _stop_heartbeat(self, task: object | None) -> None:
+        if task is not None:
+            task.cancel()  # type: ignore[attr-defined]
+
+    def _mark_stage(self, stage: str, action: str, reason: str | None = None) -> None:
+        """把阶段推进写进检查点（G1）。"""
+        if self._session is None:
+            return
+        from uup2iso.core.models.enums import StageState
+
+        if action == "begin":
+            begin = getattr(self._session, "begin_stage", None)
+            if callable(begin):
+                begin(stage)
+            return
+        end = getattr(self._session, "end_stage", None)
+        if not callable(end):
+            return
+        mapping = {
+            STATUS_SUCCEEDED: StageState.SUCCEEDED,
+            STATUS_FAILED: StageState.FAILED,
+            STATUS_SKIPPED: StageState.SKIPPED,
+            STATUS_CANCELLED: StageState.CANCELLED,
+            "skipped": StageState.SKIPPED,
+        }
+        state = mapping.get(action)
+        if state is not None:
+            end(stage, state, skip_reason=reason)
+
+    def _finish_session(
+        self, outcomes: list[StageOutcome], *, cancelled: bool, failed: BaseException | None
+    ) -> None:
+        if self._session is None:
+            return
+        from uup2iso.core.models.enums import TaskState
+
+        finish = getattr(self._session, "finish", None)
+        if not callable(finish):
+            return
+        if cancelled:
+            finish(TaskState.CANCELLED)
+        elif failed is not None:
+            finish(TaskState.FAILED, result=_reason_of(failed))
+        else:
+            finish(TaskState.SUCCEEDED)
 
     @staticmethod
     def _log(

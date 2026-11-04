@@ -188,6 +188,15 @@ class TaskSession:
         self._save()
         return record
 
+    def heartbeat(self) -> None:
+        """心跳：刷新 `updatedAt` 并落盘（长任务用于识别"进程还在"）。
+
+        规范（编排 §4.1）：60 秒一次；只更新 `updatedAt`，不改状态。
+        """
+        checkpoint = self._require()
+        checkpoint.updated_at = self._clock()
+        self._save()
+
     def finish(self, status: TaskState, *, result: str = "") -> None:
         """落终态（`succeeded` / `failed` / `cancelled`）。"""
         checkpoint = self._require()

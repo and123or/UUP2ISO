@@ -18,6 +18,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from uup2iso.application.cancel import SignalCancelToken
 from uup2iso.application.pipeline import (
     PipelineOrchestrator,
     PipelineRun,
@@ -37,7 +38,7 @@ from uup2iso.application.startup import (
 from uup2iso.application.task_session import TaskSession
 from uup2iso.core.errors import ErrorCode, ExitCode, Uup2IsoError
 from uup2iso.core.models.checkpoint import ResumeDecision
-from uup2iso.core.models.enums import EntryPoint
+from uup2iso.core.models.enums import EntryPoint, TaskState
 from uup2iso.core.models.pipeline import StageKind
 from uup2iso.infrastructure.storage.checkpoint_store import CheckpointStore
 from uup2iso.infrastructure.storage.config_loader import load_task_config
@@ -234,14 +235,14 @@ def _run_with_session(
     lines.extend(plan.summary_lines())
 
     # 3) 续跑判定
+    session = TaskSession(
+        task_id=task_id,
+        work_dir=resolved_work,
+        config_fingerprint=config.fingerprint(),  # type: ignore[attr-defined]
+        store=CheckpointStore(resolved_work),
+    )
     resume_payload: dict[str, object] = {}
     if options.resume:
-        session = TaskSession(
-            task_id=task_id,
-            work_dir=resolved_work,
-            config_fingerprint=config.fingerprint(),  # type: ignore[attr-defined]
-            store=CheckpointStore(resolved_work),
-        )
         resume_plan = session.plan_resume()
         resume_payload = {
             "decision": resume_plan.decision.value,
@@ -341,15 +342,35 @@ def _run_with_session(
             lines=tuple(lines) + (message,),
         )
 
-    run: PipelineRun = _as_sync(
-        orchestrator.run(
-            config,  # type: ignore[arg-type]
-            task_id=task_id,
-            work_dir=resolved_work,
-            log=sink,
-            cancel=None,
-        )
-    )
+    # G1：编排器持有会话（阶段级检查点 + 心跳）；G3：Ctrl+C → 取消令牌
+    orchestrator = PipelineOrchestrator(handlers=handlers, retry=RetryPolicy(), session=session)
+    token = SignalCancelToken()
+    if options.resume:
+        session.load()
+        session.begin_resume()  # 沿用原指纹与已完成阶段
+    else:
+        session.start()  # 新任务：重置检查点
+
+    with token.installed():
+        try:
+            run: PipelineRun = _as_sync(
+                orchestrator.run(
+                    config,  # type: ignore[arg-type]
+                    task_id=task_id,
+                    work_dir=resolved_work,
+                    log=sink,
+                    cancel=token,
+                )
+            )
+        except KeyboardInterrupt:
+            session.finish(TaskState.CANCELLED)
+            sink.warn("app.cli", "用户取消", event="task_cancelled", task=task_id)
+            message = "已取消（保留中间产物，可用 --resume 继续）"
+            return RunOutcome(
+                exit_code=int(ExitCode.CANCELLED),
+                payload={"task": task_id, "result": "cancelled", "code": int(ExitCode.CANCELLED)},
+                lines=tuple(lines) + (message,),
+            )
     lines.append(f"结果：{'成功' if run.succeeded else '失败'}（{run.exit_code}）")
     return RunOutcome(
         exit_code=run.exit_code,

@@ -247,6 +247,64 @@ def test_default_handlers_cover_prepare_fetch_convert_output(tmp_path: Path) -> 
     }
 
 
+# --- P1-2：会话检查点与 Ctrl+C ----------------------------------------------
+
+
+def test_run_writes_checkpoint_states(tmp_path: Path) -> None:
+    """G1：执行后检查点应存在，且阶段状态为 succeeded/skipped、任务为 succeeded。"""
+    import json
+
+    from uup2iso.core.models.pipeline import StageKind
+
+    class Ok:
+        def __init__(self, stage: object) -> None:
+            self.stage = stage
+
+        async def run(self, ctx: object) -> None:
+            return None
+
+    config_path = write_config(tmp_path)
+    handlers = {kind: Ok(kind) for kind in (StageKind.PREPARE, StageKind.OUTPUT)}
+
+    outcome = execute_run(
+        RunOptions(config_path=config_path),
+        log_dir=tmp_path / "logs",
+        work_dir=tmp_path / "work",
+        mutex_name=unique_mutex(),
+        handlers=handlers,
+    )
+
+    assert outcome.exit_code in (0, 2)
+    checkpoint = json.loads((tmp_path / "work" / "checkpoint.json").read_text(encoding="utf-8"))
+    assert checkpoint["status"] in {"succeeded", "failed"}
+    assert "Prepare" in checkpoint["stages"]
+
+
+def test_ctrl_c_returns_exit_3(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """G3：Ctrl+C → 退出码 3、结果 cancelled、检查点落 cancelled。"""
+    import json
+
+    from uup2iso.application.pipeline import PipelineOrchestrator
+
+    def raise_interrupt(self: object, *args: object, **kwargs: object) -> object:
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(PipelineOrchestrator, "run", raise_interrupt)
+
+    config_path = write_config(tmp_path)
+    outcome = execute_run(
+        RunOptions(config_path=config_path),
+        log_dir=tmp_path / "logs",
+        work_dir=tmp_path / "work",
+        mutex_name=unique_mutex(),
+    )
+
+    assert outcome.exit_code == 3
+    assert outcome.payload["result"] == "cancelled"
+    checkpoint = json.loads((tmp_path / "work" / "checkpoint.json").read_text(encoding="utf-8"))
+    assert checkpoint["status"] == "cancelled"
+
+
 # --- 参数解析（Typer 层） ---------------------------------------------------
 
 

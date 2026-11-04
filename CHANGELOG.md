@@ -1,5 +1,49 @@
 # CHANGELOG
 
+## 0.1.35 — P1-2 补齐 W1 四缺口（检查点 / 心跳 / 取消 / 预览）
+
+> 依据：`现状与下一阶段计划` §3.2 的 G1–G4；`编排 §4.1/§9`（检查点与续跑）、`进程 §7.1`（取消）。
+> 验收：检查点随阶段落盘、心跳按 60 s 触发、Ctrl+C 退 3、各阶段 dry-run 都有文件操作。
+
+### G1 编排器持有会话
+- `PipelineOrchestrator(session=...)`：每个执行阶段 `begin_stage`、结束按结果 `end_stage`
+  （`succeeded/failed/skipped/cancelled`，跳过带 `skip_reason`）；整条跑完 `session.finish(...)` 落终态。
+- `StageContext.session`：处理器可拿会话登记产物（当前 Output 尚未调用，见已知限制）。
+- CLI：`session.start()`（新任务）/ `load()+begin_resume()`（`--resume`）二选一，语义明确。
+
+### G2 心跳
+- `TaskSession.heartbeat()`：只刷新 `updatedAt` 并落盘。
+- 编排器启动 60 s 循环（`heartbeat_interval` 可注入）；**没有会话就不启动**；结束 `cancel()`。
+
+### G3 Ctrl+C 取消
+- 新增 `application/cancel.py` 的 `SignalCancelToken`：实现 `is_cancelled()`，
+  **第一次 Ctrl+C 只设标志**（编排器在阶段边界退出、保留中间产物），**第二次交还默认处理**（强退不被拦）。
+- `installed()` 上下文管理器负责安装/恢复 SIGINT；非主线程装不上时静默退化为主动 `cancel()`。
+- CLI 捕获 `KeyboardInterrupt` → 退出码 **3**、`result=cancelled`、检查点落 `cancelled`。
+
+### G4 dry-run 文件操作
+- Prepare / Convert / Output 都已提供 `file_operations()`；新增测试守着「三个阶段都不为空」，
+  防止将来新处理器漏实现。
+
+### 测试
+- `test_pipeline_session.py`（11）：阶段 begin/end 序列（含 skipped 带原因）、失败落 `failed`、
+  无会话可用、心跳按注入间隔触发、无会话不心跳、令牌标志与首次/二次行为、`installed()` 恢复原 handler、
+  取消后立即退出（退出码 3 + `finish(cancelled)`）、三阶段 `file_operations` 非空。
+- `test_cli_run.py` 增 2 项：真实 `execute_run` 后 `checkpoint.json` 有阶段记录；
+  `KeyboardInterrupt` → 退出码 3 且检查点为 `cancelled`。
+- 全量：`pytest 850 passed`；`mypy 121 files`；`ruff`/`format` 全绿。
+
+### 变更（文档）
+- `现状与下一阶段计划` v1.4 → **v1.5**：G1–G4 全部标 ✅ 并写明实现；`术语表 §1.2` 同步。
+
+### 已知限制
+- **子步骤级检查点尚未接**：编排器只写阶段级；"子步骤完成即写"需要各处理器显式调用
+  `session.end_substep(...)`，当前仅阶段边界可靠（强杀丢的是当前阶段进度，不丢已完成阶段）。
+- **Output 未登记产物**：`session.record_artifact()` 已具备，但 Output 还没调，续跑的"产物复用"仍靠文件存在判定。
+- **取消依赖处理器让出控制权**：编排器在阶段边界检查；长时 `await` 阶段（如大文件复制）不会即时中断。
+- **GUI 未接**：本轮只做 CLI 路径；GUI 的取消按钮与心跳复用同一 session，留待 WP9。
+- 真实 `Convert` 未跑过（需 UAC + 用户手工），因此"检查点在真实阶段内落盘"只在测试与 Prepare 上验证。
+
 ## 0.1.34 — P2-1 `Output` 阶段（先出 WIM，原子提交 + 伴生）
 
 > 依据：`输出 §3`（唯一合法路径）、`§5`（重名）、`§6`（校验分级）、`§8`（伴生）。

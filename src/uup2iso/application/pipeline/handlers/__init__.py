@@ -58,6 +58,7 @@ class StageContext:
         cancel: 取消令牌。
         log: 运行日志写入端。
         progress: 进度通道（**不落盘**）。
+        session: 任务会话（可选）；处理器可登记产物、写检查点。
         extras: 处理器之间传递的运行时数据（如 `install.wim` 路径）。
     """
 
@@ -70,6 +71,7 @@ class StageContext:
     cancel: CancelToken | None = None
     log: object | None = None
     progress: object | None = None
+    session: object | None = None
     extras: dict[str, object] = field(default_factory=dict)
 
 

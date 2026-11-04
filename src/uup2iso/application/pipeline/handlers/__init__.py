@@ -27,6 +27,8 @@ __all__ = [
     "CleanupHook",
     "ConvertOptions",
     "ConvertStageHandler",
+    "OutputArtifact",
+    "OutputStageHandler",
     "FetchOutcome",
     "FetchStageHandler",
     "PrepareOps",
@@ -115,6 +117,10 @@ from uup2iso.application.pipeline.handlers.convert import (  # noqa: E402 - 放�
 from uup2iso.application.pipeline.handlers.fetch import (  # noqa: E402 - 放末尾避免循环导入
     FetchOutcome,
     FetchStageHandler,
+)
+from uup2iso.application.pipeline.handlers.output import (  # noqa: E402 - 放末尾避免循环导入
+    OutputArtifact,
+    OutputStageHandler,
 )
 from uup2iso.application.pipeline.handlers.prepare import (  # noqa: E402 - 放末尾避免循环导入
     PrepareOps,

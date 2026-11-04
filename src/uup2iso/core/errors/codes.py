@@ -76,6 +76,8 @@ class ErrorCode(StrEnum):
     # --- 输出（输出 §4、§6；配置 §3.4） ---
     OUTPUT_TYPE_UNSUPPORTED = "OUTPUT_TYPE_UNSUPPORTED"
     OUTPUT_CROSS_VOLUME = "OUTPUT_CROSS_VOLUME"
+    OUTPUT_VERIFY_FAILED = "OUTPUT_VERIFY_FAILED"
+    """L1/L2/L3 任一不过（输出 §6）：不 rename、不写伴生、保留暂存。"""
     DISK_FULL = "DISK_FULL"
 
     # --- 规则（规则 §8） ---

@@ -91,7 +91,18 @@ def build_handlers(config: object | None = None) -> dict[StageKind, StageHandler
         EntryPoint.UUP_FOLDER,
     ):
         handlers[StageKind.CONVERT] = _make_convert_handler()
+    if config is not None:
+        handlers[StageKind.OUTPUT] = _make_output_handler()
     return handlers
+
+
+def _make_output_handler() -> StageHandler:
+    """Output：暂存 → 校验 → 原子提交 → 伴生（需要 wimlib 做 L2/L3）。"""
+    from uup2iso.application.pipeline.handlers import OutputStageHandler
+    from uup2iso.infrastructure.process.runner import ProcessRunner
+
+    root = Path(__file__).resolve().parents[3]
+    return OutputStageHandler(runner=ProcessRunner(), tools_dir=root / "tools")
 
 
 def _make_convert_handler() -> StageHandler:
@@ -193,7 +204,7 @@ def execute_run(
             config=config,
             task_id=task_id,
             report=report,
-            handlers=handlers or build_handlers(config),
+            handlers=handlers if handlers is not None else build_handlers(config),
             work_dir=work_dir,
         )
     finally:

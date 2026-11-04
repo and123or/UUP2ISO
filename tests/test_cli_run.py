@@ -215,6 +215,7 @@ def test_resume_without_checkpoint_is_new_task(tmp_path: Path) -> None:
 
 
 def test_run_without_handlers_reports_not_implemented(tmp_path: Path) -> None:
+    """显式给空处理器：要执行的阶段全部缺实现 → not_implemented 并列出缺哪些。"""
     config_path = write_config(tmp_path)
 
     outcome = execute_run(
@@ -222,12 +223,28 @@ def test_run_without_handlers_reports_not_implemented(tmp_path: Path) -> None:
         log_dir=tmp_path / "logs",
         work_dir=tmp_path / "work",
         mutex_name=unique_mutex(),
+        handlers={},
     )
 
     assert outcome.exit_code == 4
     assert outcome.payload["error"] == "not_implemented"
     assert outcome.payload["missingStages"], "必须列出缺哪些阶段"
-    assert "Output" in outcome.payload["missingStages"]
+    assert "Prepare" in outcome.payload["missingStages"], "Prepare 永不跳过，必缺"
+
+
+def test_default_handlers_cover_prepare_fetch_convert_output(tmp_path: Path) -> None:
+    """真实组合根：入口 A/B 的四个阶段都已接线（缺的只是后续裁剪类阶段）。"""
+    from uup2iso.application.cli_runner import build_handlers
+    from uup2iso.core.models import default_task_config
+    from uup2iso.core.models.enums import EntryPoint
+    from uup2iso.core.models.pipeline import StageKind
+
+    handlers = build_handlers(default_task_config(mode=EntryPoint.UUP_FOLDER))
+    assert set(handlers) >= {
+        StageKind.PREPARE,
+        StageKind.CONVERT,
+        StageKind.OUTPUT,
+    }
 
 
 # --- 参数解析（Typer 层） ---------------------------------------------------

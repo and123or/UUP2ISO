@@ -1,5 +1,56 @@
 # CHANGELOG
 
+## 0.1.34 — P2-1 `Output` 阶段（先出 WIM，原子提交 + 伴生）
+
+> 依据：`输出 §3`（唯一合法路径）、`§5`（重名）、`§6`（校验分级）、`§8`（伴生）。
+> 验收：产物**先落暂存区**、校验通过才 `rename`；失败不产最终文件、保留暂存。
+
+### 新增
+- **`application/pipeline/handlers/output.py`**：`OutputStageHandler`（四子步骤）
+  - `assemble`：定位 `install.wim`（ISO/ESD 类型分别报 `OUTPUT_TYPE_UNSUPPORTED`/走 esd 分支）；
+    按 `{edition}_{build}_{arch}_{lang}` 渲染文件名（非法字符替换、连续下划线合并、≤200 字符）；
+    **空间预检**（`size×1.05+16MB`）与**同卷检查**（`OUTPUT_CROSS_VOLUME`），失败**不创建暂存区**；
+  - `package`：分块复制 + 同步算 SHA256 + `flush/fsync` 到 `.uup2iso-tmp\<task>\<name>.part`；
+  - `verify`：L1（大小一致）→ L2（`wimlib info` 可解析 + `Image Count ≥1`）→ L3（可选 `wimlib verify`）；
+  - `commit`：重名解析（`_1`..`_999`，之后时间戳）→ `Path.replace` 原子落位 → **重算 SHA256 复核** →
+    写伴生（`.sha256` 用 `<hex> *<name>` 格式、`.readme.txt`）→ 清理本次暂存。
+  - `describe()` / `file_operations()` 供 `--dry-run`（后者明确列出 `.part` 暂存，体现"不走最终名"）。
+- 组合根：`build_handlers()` 对所有入口装配 `Output`。
+- 错误码：登记 `OUTPUT_VERIFY_FAILED`（**先改文档** `输出 §6` 再改代码，符合 AGENTS §4）。
+
+### 真实演练（wimlib capture 造的 1.6 KB 小 WIM，全链路真跑）
+```
+final:    professional_26300.9818_unknown_zh-cn.wim   size=1648  sha256=3c0c0ab8…
+sidecars: .readme.txt + .wim.sha256（"3c0c0ab8… *professional_26300.9818_unknown_zh-cn.wim"）
+暂存残留: 无（.uup2iso-tmp 已清空）
+```
+
+### 修的两个真问题（都是"跑起来"才发现的）
+| 现象 | 原因 | 处理 |
+| --- | --- | --- |
+| `'ProcessResult' object has no attribute 'stdout'` | `ProcessResult` 只留最后若干行，取不到完整输出 | 改用 `on_event` 收集全部行再解析 `Image Count` |
+| 显式 `handlers={}` 仍走默认处理器 | `execute_run` 用 `handlers or build_handlers()`，空 dict 是 falsy | 改为 `if handlers is not None` |
+
+### 测试
+- `test_output_handler.py`（21）：模板渲染（变量/非法字符/下划线/超长/unknown）、重名 `_1`/`_2`/overwrite、
+  缺 WIM、ISO 类型拒绝、缺输出目录、磁盘不足（且不建暂存）、端到端提交（含伴生与暂存清理）、
+  二次运行加后缀、**L2 失败保留暂存且不产最终文件**、L3 调用顺序、L1 不调 wimlib、缺 runner、
+  `describe` 两种情形、`file_operations` 含 `.part`、`Image Count` 解析。
+- 另更新 `test_cli_run.py`：缺处理器用例改为显式空处理器（并新增「默认处理器覆盖四阶段」用例）。
+- 全量：`pytest 836 passed`；`mypy 120 files`；`ruff`/`format` 全绿。
+
+### 变更（文档）
+- `输出` v0.2 → **v0.3**：§6 登记 `OUTPUT_VERIFY_FAILED`。
+- `现状与下一阶段计划` v1.3 → **v1.4**：新增 §4.5（Output 落地表 + 真实演练），P2-1 标 ✅；术语表同步。
+
+### 已知限制
+- **只支持 WIM**：ISO（P2-2，需 `oscdimg`）与 ESD/SWM 未实现，配置成这些类型会明确报错。
+- **`{arch}` 是 `unknown`**：配置未声明架构时按规范填 `unknown`；从文件名（`-amd64-`）推断属后续优化。
+- **L2 不校验索引名/压缩类型**：只查可解析与映像数；索引名唯一性与压缩类型比对留待后续。
+- **不写 `.manifest.json`**：规范列为可选（用户勾选才生成），当前未接。
+- 跨卷分支无单测（需真实另一块盘），靠同卷预检保证正常路径不触发。
+- 续跑复用：暂存区在失败时保留，但**尚未接入启动时的残留检测与三选提示**（属 T3 的 G1 缺口）。
+
 ## 0.1.33 — P0-0 版本目录（GitHub 动态解析，代码零版本常量）
 
 > 依据：`docs/计划/现状与下一阶段计划.md` §5；用户要求「以 GitHub 为可信来源、动态获取、不得硬编码」。

@@ -118,8 +118,9 @@ def test_write_config_ini_is_atomic(tmp_path: Path) -> None:
     assert paths.ini.is_file()
     assert not list(paths.ini.parent.glob("*.tmp"))
     raw = paths.ini.read_bytes()
-    assert raw.startswith(b"\xef\xbb\xbf"), "带 BOM，避免 cmd 读中文乱码"
-    assert b"AutoStart" in raw
+    assert not raw.startswith(b"\xef\xbb\xbf"), "不能带 BOM：findstr 匹配首行会失败"
+    assert raw.startswith(b"[convert-UUP]"), "首行必须是段落名"
+    assert b"AutoStart    =3" in raw
 
 
 # --- 解包 -------------------------------------------------------------------
@@ -201,7 +202,7 @@ def test_run_without_runner_is_internal_error(tmp_path: Path) -> None:
     paths.entry.write_text("rem converter", encoding="utf-8")
     paths.bin_dir.mkdir()
 
-    handler = ConvertStageHandler(tools_dir=tmp_path / "tools")
+    handler = ConvertStageHandler(tools_dir=tmp_path / "tools", admin_check=lambda: True)
     with pytest.raises(StageExecutionError) as caught:
         asyncio.run(handler.run(make_ctx(tmp_path, config)))
     assert caught.value.code is ErrorCode.INTERNAL_ERROR
@@ -281,3 +282,45 @@ def test_entry_a_still_fetches_when_starting_at_convert(tmp_path: Path) -> None:
     fetch = next(stage for stage in plan.stages if stage.stage is StageKind.FETCH)
 
     assert fetch.skipped is False
+
+
+def test_requires_admin_before_invoking_converter(tmp_path: Path) -> None:
+    """转换器非管理员会自提权弹新窗口 → 我们在调用前直接拒绝。"""
+    config = make_config(tmp_path)
+    (tmp_path / "uups").mkdir()
+    paths = converter_paths(tmp_path / "tools", tmp_path / "work")
+    paths.root.mkdir(parents=True)
+    paths.entry.write_text("rem converter", encoding="utf-8")
+    paths.bin_dir.mkdir()
+
+    handler = ConvertStageHandler(tools_dir=tmp_path / "tools", admin_check=lambda: False)
+    with pytest.raises(StageExecutionError) as caught:
+        asyncio.run(handler.run(make_ctx(tmp_path, config)))
+    assert caught.value.code is ErrorCode.PERMISSION_DENIED
+    assert "管理员" in caught.value.message
+
+
+def test_config_written_after_unpack_keeps_autostart(tmp_path: Path) -> None:
+    """先解包后写 ini：包内默认 AutoStart=0 不得覆盖我们的值。"""
+    from uup2iso.application.pipeline.handlers.convert import unpack_converter
+
+    config = make_config(tmp_path)
+    (tmp_path / "uups").mkdir()
+    paths = converter_paths(tmp_path / "tools", tmp_path / "work")
+    paths.root.mkdir(parents=True)
+    paths.entry.write_text("rem converter", encoding="utf-8")
+    paths.bin_dir.mkdir()
+    # 模拟包内默认 ini（AutoStart=0），即"解包产物"
+    paths.ini.write_text("[convert-UUP]\r\nAutoStart    =0\r\n", encoding="ascii")
+
+    ctx = make_ctx(tmp_path, config)
+    # 只跑到 config 子步骤：把 aggregate/skeleton/bootwim 从计划里剔除
+    step_names = [sub.name for sub in ctx.plan.substeps]
+    assert "config" in step_names
+
+    from uup2iso.application.pipeline.handlers.convert import options_from, write_config_ini
+
+    unpack_converter(paths)  # 幂等：已解包则跳过，保留包内默认 ini
+    write_config_ini(paths, options_from(config.convert))  # type: ignore[attr-defined]
+    text = paths.ini.read_text(encoding="ascii")
+    assert "AutoStart    =3" in text, "写入必须发生在解包之后"

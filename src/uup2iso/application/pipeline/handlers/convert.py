@@ -181,10 +181,12 @@ class ConvertStageHandler:
         tools_dir: Path | None = None,
         runner: ProcessRunner | None = None,
         log: Any = None,
+        admin_check: object | None = None,
     ) -> None:
         self._tools_dir = tools_dir
         self._runner = runner
         self._log = log
+        self._admin_check: object = admin_check or is_admin
         self.outcome: dict[str, Any] | None = None
 
     # -- StageHandler -----------------------------------------------------
@@ -195,11 +197,19 @@ class ConvertStageHandler:
         options = options_from(getattr(ctx.config, "convert", None))
         source = _resolve_input_dir(ctx.config)
 
+        # 顺序关键：**先解包再写 ini**。包内自带 ConvertConfig.ini（AutoStart=0），
+        # 若先写后被解包覆盖，转换器就会退回交互菜单（实测踩过）。
+        if "config" in executed or "cab" in executed:
+            unpack_converter(paths)
         if "config" in executed:
             write_config_ini(paths, options)
-        if "cab" in executed:
-            unpack_converter(paths)
         if "aggregate" in executed:
+            if not self._is_admin():
+                raise StageExecutionError(
+                    "转换器需要管理员权限（内部会调用 DISM；非管理员它会弹 UAC 新窗口导致本进程失败）。"
+                    "请以管理员身份重新运行本程序。",
+                    code=ErrorCode.PERMISSION_DENIED,
+                )
             await self._invoke(ctx, paths, source)
         if "skeleton" in executed:
             _require_exists(paths.iso_folder, "ISO 骨架目录", "skeleton")
@@ -289,6 +299,10 @@ class ConvertStageHandler:
         if sink is not None and isinstance(text, str) and text:
             sink.info("app.convert", text, stage="Convert", event="converter")
 
+    def _is_admin(self) -> bool:
+        check = self._admin_check
+        return bool(check()) if callable(check) else True
+
     def _require_tools(self, ctx: StageContext) -> Path:
         tools = self._tools_dir
         if tools is None:
@@ -303,12 +317,30 @@ class ConvertStageHandler:
 # ---------------------------------------------------------------------------
 
 
+def is_admin() -> bool:
+    """当前进程是否管理员（Windows）。
+
+    转换器非管理员时会用 `start ... -verb runas` 启一个**新窗口**提权，
+    原进程随即失败——所以我们在调用前先拦。
+    """
+    import ctypes
+    import sys
+
+    if sys.platform != "win32":
+        return True
+    try:
+        return bool(ctypes.windll.shell32.IsUserAnAdmin())
+    except (AttributeError, OSError):
+        return False
+
+
 def write_config_ini(paths: ConverterPaths, options: ConvertOptions) -> Path:
     """原子写 `ConvertConfig.ini`（转换器按 `findstr` 逐键读取）。"""
     paths.root.mkdir(parents=True, exist_ok=True)
     path = paths.ini
     tmp = path.with_suffix(".ini.tmp")
-    tmp.write_bytes(options.to_ini().encode("utf-8-sig"))
+    # 必须**无 BOM**：转换器用 findstr 读首行 `[convert-UUP]`，BOM 会让匹配失败 → 退回交互菜单
+    tmp.write_bytes(options.to_ini().encode("ascii"))
     tmp.replace(path)
     return path
 

@@ -1,5 +1,40 @@
 # CHANGELOG
 
+## 0.1.36 — 修复转换器集成：ini 顺序 / BOM / 管理员前置
+
+> 触发：用户首次真跑 `run`，Convert 阶段立刻失败，并弹出一个停在交互菜单的管理员窗口。
+> 依据：`docs/记录/转换路线验证.md` 新增「2026-11-04 转换器集成实测（v128m）」附节。
+
+### 修复（三个真原因，缺一都不会成功）
+| # | 现象 | 根因 | 处理 |
+| --- | --- | --- | --- |
+| 1 | 转换器进入交互菜单（`UUP -> ISO v128m`，等输入） | 子步骤顺序是 `config → cab`：写入的 `AutoStart=3` 被**解包自带的 `ConvertConfig.ini`（`AutoStart=0`）覆盖** | `run()` 改为**先解包再写 ini**（`config` 分支内先 `unpack_converter`，幂等） |
+| 2 | 同上（潜在第二个坑） | ini 以 **UTF-8 BOM** 写入，转换器用 `findstr` 读首行 `[convert-UUP]` 时匹配失败 → 整份配置被忽略 | ini 改为**纯 ASCII、无 BOM**（键值全英文，无乱码风险） |
+| 3 | 弹出另一个管理员 cmd 窗口，原进程失败 | 转换器**自提权**（`start cmd.exe ... -verb runas`），非管理员时它在新窗口重启自己，原进程随即退出 | 调用 `aggregate` 前检查 `IsUserAnAdmin()`，非管理员报 `PERMISSION_DENIED` 并提示"请以管理员身份运行" |
+
+### 验证
+```
+包内默认：  [convert-UUP] / AutoStart    =0
+写入之后：  [convert-UUP] / AutoStart    =3
+有 BOM：    False
+关键键：    AutoStart=3  AddUpdates=0  SkipISO=1  SkipApps=1
+```
+
+### 测试
+- `test_convert_handler.py`（22）：`write_config_ini` 断言**无 BOM 且首行为段落名**；
+  新增「非管理员 → `PERMISSION_DENIED`」「先解包后写 ini 不被包内默认覆盖」两项。
+- 全量：`pytest 852 passed`；`mypy 121 files`；`ruff`/`format` 全绿。
+
+### 变更（文档）
+- `转换路线验证.md`：追加「2026-11-04 转换器集成实测（v128m）」三条事实（不改动原结论）。
+- `现状与下一阶段计划` v1.5 → **v1.6**：§4.4 补三条集成实测补丁；`术语表 §1.2` 同步。
+
+### 已知限制
+- **必须以管理员运行**（不只是 Convert 阶段）：CLI 自身不提权，需要用户从管理员终端启动；
+  GUI 阶段会做成启动时检测并提示（UAC 清单已规划）。
+- ini 只写 `[convert-UUP]` 与 `[Store_Apps]` 两段；`[create_virtual_editions]` 保持转换器默认。
+- 转换器内部日志不落我们的 `logs\`（其输出走 stdout 被我们记录），独立日志文件未接。
+
 ## 0.1.35 — P1-2 补齐 W1 四缺口（检查点 / 心跳 / 取消 / 预览）
 
 > 依据：`现状与下一阶段计划` §3.2 的 G1–G4；`编排 §4.1/§9`（检查点与续跑）、`进程 §7.1`（取消）。

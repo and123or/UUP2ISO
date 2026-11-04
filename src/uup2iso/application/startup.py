@@ -102,12 +102,21 @@ class StartupReport:
         self.guard.release()
 
 
+def program_dir() -> Path:
+    """程序目录（便携分发语义）：打包后是 exe 所在目录，开发期是仓库根。"""
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent
+    return Path(__file__).resolve().parents[3]
+
+
 def default_log_dir() -> Path:
     """日志目录：便携分发，永远在程序目录下的 ``logs``（日志 §2.1）。"""
-    if getattr(sys, "frozen", False):
-        return Path(sys.executable).resolve().parent / "logs"
-    # 开发期用仓库根（便于直接看日志）；与打包后的语义一致
-    return Path(__file__).resolve().parents[3] / "logs"
+    return program_dir() / "logs"
+
+
+def default_output_dir() -> Path:
+    """默认输出目录：程序目录下的 ``output``（输出 §5.1）。"""
+    return program_dir() / "output"
 
 
 def bootstrap(

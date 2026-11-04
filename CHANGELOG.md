@@ -1,5 +1,33 @@
 # CHANGELOG
 
+## 0.1.41 — 输出目录默认落在程序目录（不再要求用户先建目录）
+
+> 用户指出：输出不应在磁盘根创建文件夹，应该是程序目录或用户指定。
+
+### 修复
+- **`output.dir` 三种写法**（`输出 §5.0`）：
+  - 空（默认）→ `<程序目录>\output`
+  - 相对路径 → 相对程序目录
+  - 绝对路径 → 原样
+- 目录不存在**自动创建**（此前直接报 `CONFIG_SEMANTIC_INVALID`，用户得先手工建目录）；
+  创建失败（无权限/只读）→ `PERMISSION_DENIED` 并提示改位置。
+- `application/startup.py` 抽出 `program_dir()`（打包后=exe 目录，开发期=仓库根），
+  `default_log_dir()` 与新增 `default_output_dir()` 共用同一语义。
+
+### 测试
+- `test_output_handler.py`（22）：新增「空 dir → 程序目录\output 且自动创建」「相对路径相对程序目录」
+  「绝对路径原样」，替换原先的「缺目录报错」用例。
+- 全量：`pytest 全绿`；`mypy 122 files`；`ruff`/`format` 全绿。
+
+### 变更（文档）
+- `输出` v0.3 → **v0.4**：新增 §5.0 输出目录解析规则；`术语表 §1.2` 同步。
+
+### 已知限制
+- 默认目录在程序目录下：若程序装在 `Program Files`（不可写），会得到 `PERMISSION_DENIED`，
+  需显式指定 `output.dir`——GUI 阶段会在设置页给出默认值提示。
+- 之前生成的 `task-26300.json` 里是绝对路径 `D://UUP2ISO-Out`（属"用户指定"），仍按原样生效；
+  想改用默认行为，把该字段清空即可。
+
 ## 0.1.40 — 修 Output 崩溃：日志字段撞名 + extras 不共享 + resume 假复用
 
 > 排查结论：**不是意外中断**。日志显示 Convert 成功（3 分 25 秒，`Finished.`），

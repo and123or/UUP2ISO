@@ -166,15 +166,51 @@ def test_iso_type_is_not_implemented(tmp_path: Path) -> None:
     assert caught.value.code is ErrorCode.OUTPUT_TYPE_UNSUPPORTED
 
 
-def test_missing_output_dir_is_config_error(tmp_path: Path) -> None:
-    config = make_config(tmp_path)
-    config.output.dir = str(tmp_path / "nope")  # type: ignore[union-attr]
-    make_wim(tmp_path / "work")
-    handler = OutputStageHandler(runner=FakeRunner(), tools_dir=tmp_path / "tools")
+def test_empty_output_dir_defaults_to_program_dir(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`output.dir` 为空 → 程序目录下的 output（不是磁盘根、也不是当前目录）。"""
+    from uup2iso.application import startup
 
-    with pytest.raises(StageExecutionError) as caught:
-        asyncio.run(handler.run(make_ctx(tmp_path, config)))
-    assert caught.value.code is ErrorCode.CONFIG_SEMANTIC_INVALID
+    monkeypatch.setattr(startup, "program_dir", lambda: tmp_path / "app")
+    config = make_config(tmp_path)
+    config.output.dir = ""  # type: ignore[union-attr]
+    make_wim(tmp_path / "work")
+
+    handler = OutputStageHandler(runner=FakeRunner(), tools_dir=tmp_path / "tools")
+    asyncio.run(handler.run(make_ctx(tmp_path, config)))
+
+    final = handler.outcome.final  # type: ignore[union-attr]
+    assert final.parent == tmp_path / "app" / "output", "默认落在程序目录下"
+    assert final.parent.is_dir(), "目录应被自动创建"
+
+
+def test_relative_output_dir_is_relative_to_program_dir(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from uup2iso.application import startup
+
+    monkeypatch.setattr(startup, "program_dir", lambda: tmp_path / "app")
+    config = make_config(tmp_path)
+    config.output.dir = "out-here"  # type: ignore[union-attr]
+    make_wim(tmp_path / "work")
+
+    handler = OutputStageHandler(runner=FakeRunner(), tools_dir=tmp_path / "tools")
+    asyncio.run(handler.run(make_ctx(tmp_path, config)))
+
+    assert handler.outcome.final.parent == tmp_path / "app" / "out-here"  # type: ignore[union-attr]
+
+
+def test_absolute_output_dir_is_used_as_is(tmp_path: Path) -> None:
+    config = make_config(tmp_path)
+    target = tmp_path / "custom-out"
+    config.output.dir = str(target)  # type: ignore[union-attr]
+    make_wim(tmp_path / "work")
+
+    handler = OutputStageHandler(runner=FakeRunner(), tools_dir=tmp_path / "tools")
+    asyncio.run(handler.run(make_ctx(tmp_path, config)))
+
+    assert handler.outcome.final.parent == target  # type: ignore[union-attr]
 
 
 def test_disk_full_is_preflight_failure(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

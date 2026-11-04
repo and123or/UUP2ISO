@@ -204,16 +204,27 @@ class OutputStageHandler:
         return found
 
     def _resolve_output_dir(self, config: TaskConfig) -> Path:
-        raw = config.output.dir
+        """输出目录：空 → 程序目录下的 output；相对 → 相对程序目录；绝对 → 原样。
+
+        目录不存在会**自动创建**（用户不必先手工建目录）。
+        """
+        from uup2iso.application.startup import default_output_dir, program_dir
+
+        raw = (config.output.dir or "").strip()
         if not raw:
-            raise StageExecutionError(
-                "未配置输出目录（output.dir）", code=ErrorCode.CONFIG_SEMANTIC_INVALID
-            )
-        path = Path(raw)
+            path = default_output_dir()
+        else:
+            candidate = Path(raw)
+            path = candidate if candidate.is_absolute() else program_dir() / candidate
+
         if not path.is_dir():
-            raise StageExecutionError(
-                f"输出目录不存在：{path}", code=ErrorCode.CONFIG_SEMANTIC_INVALID
-            )
+            try:
+                path.mkdir(parents=True, exist_ok=True)
+            except OSError as exc:
+                raise StageExecutionError(
+                    f"输出目录不可写：{path}（{exc}）。请改到可写位置或指定 output.dir",
+                    code=ErrorCode.PERMISSION_DENIED,
+                ) from exc
         return path
 
     def _compose_name(self, ctx: StageContext, config: TaskConfig, source: Path) -> str:

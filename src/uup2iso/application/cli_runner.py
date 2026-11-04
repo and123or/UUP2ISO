@@ -250,8 +250,10 @@ def _run_with_session(
         store=CheckpointStore(resolved_work),
     )
     resume_payload: dict[str, object] = {}
+    reuse_stages: tuple[str, ...] = ()
     if options.resume:
         resume_plan = session.plan_resume()
+        reuse_stages = tuple(resume_plan.reuse_stages)
         resume_payload = {
             "decision": resume_plan.decision.value,
             "reuseStages": list(resume_plan.reuse_stages),
@@ -351,7 +353,9 @@ def _run_with_session(
         )
 
     # G1：编排器持有会话（阶段级检查点 + 心跳）；G3：Ctrl+C → 取消令牌
-    orchestrator = PipelineOrchestrator(handlers=handlers, retry=RetryPolicy(), session=session)
+    orchestrator = PipelineOrchestrator(
+        handlers=handlers, retry=RetryPolicy(), session=session, reuse_stages=reuse_stages
+    )
     token = SignalCancelToken()
     if options.resume:
         session.load()

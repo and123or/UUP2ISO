@@ -125,6 +125,9 @@ class _Line:
     fields: dict[str, object] = field(default_factory=dict)
 
 
+_RESERVED_FIELDS: frozenset[str] = frozenset({"level", "logger_name", "message", "stage"})
+"""与 `log()` 形参同名的字段会加 `field_` 前缀，避免调用方撞名导致 TypeError。"""
+
 _MIRROR_EVENTS: frozenset[str] = frozenset(
     {
         "task_started",
@@ -246,7 +249,7 @@ class LogSink:
 
     def log(
         self,
-        level: str,
+        severity: str,
         logger_name: str,
         message: str,
         *,
@@ -257,17 +260,25 @@ class LogSink:
 
         级别过滤只作用于 DEBUG/INFO；**WARN/ERROR 在任何级别下都写**（日志 §3）。
         """
-        if self._closed or level == AUDIT:
+        if self._closed or severity == AUDIT:
             return
-        if level not in (WARN, ERROR) and level_rank(level) < level_rank(self._level):
+        if severity not in (WARN, ERROR) and level_rank(severity) < level_rank(self._level):
             return
 
+        safe_fields = {
+            (f"field_{key}" if key in _RESERVED_FIELDS else key): value
+            for key, value in fields.items()
+        }
         line = _Line(
-            level=level, logger_name=logger_name, message=message, stage=stage, fields=dict(fields)
+            level=severity,
+            logger_name=logger_name,
+            message=message,
+            stage=stage,
+            fields=safe_fields,
         )
 
         # 采样只针对低级别刷屏；WARN/ERROR 一条都不能丢
-        if level in (WARN, ERROR):
+        if severity in (WARN, ERROR):
             self._write_run(line, sampled_total=None)
             self._mirror_line(line)
             return

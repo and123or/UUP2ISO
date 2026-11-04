@@ -14,7 +14,7 @@
 from __future__ import annotations
 
 import time
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Awaitable, Callable, Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -180,6 +180,7 @@ class PipelineOrchestrator:
         clock: Callable[[], float] | None = None,
         session: object | None = None,
         heartbeat_interval: float = 60.0,
+        reuse_stages: Iterable[str] = (),
     ) -> None:
         self._handlers = dict(handlers)
         self._retry = retry or RetryPolicy()
@@ -188,6 +189,10 @@ class PipelineOrchestrator:
         self._clock = clock or time.monotonic
         self._session = session
         self._heartbeat_interval = heartbeat_interval
+        # `--resume` 时已完成的阶段：直接跳过，不重跑
+        self._reuse: frozenset[str] = frozenset(reuse_stages)
+        # 跨阶段共享的运行时数据（如 Prepare 解析出的 version）
+        self._extras: dict[str, object] = {}
 
     # ------------------------------------------------------------------
     # 执行
@@ -237,6 +242,23 @@ class PipelineOrchestrator:
                 cancelled = True
                 outcomes.append(StageOutcome(stage=stage_plan.stage, status=STATUS_CANCELLED))
                 break
+
+            if stage_plan.stage.value in self._reuse:
+                # `--resume`：该阶段已完成，直接复用，不重跑
+                outcomes.append(
+                    StageOutcome(
+                        stage=stage_plan.stage, status=STATUS_SKIPPED, skip_reason="resumed"
+                    )
+                )
+                self._mark_stage(stage_plan.stage.value, "skipped", "resumed")
+                self._log(
+                    log,
+                    "阶段复用",
+                    stage=stage_plan.stage.value,
+                    event="stage_resumed",
+                    reason="resumed",
+                )
+                continue
 
             if stage_plan.skipped:
                 outcomes.append(
@@ -349,6 +371,7 @@ class PipelineOrchestrator:
                 log=log,
                 progress=progress,
                 session=self._session,
+                extras=self._extras,
             )
             self._log(
                 log,
@@ -417,6 +440,8 @@ class PipelineOrchestrator:
                     result=STATUS_FAILED,
                     duration=f"{duration:.1f}s",
                     reason=_reason_of(exc),
+                    # 异常消息必须落盘：只留 "TypeError" 根本没法定位
+                    detail=str(exc)[:300],
                 )
                 return StageOutcome(
                     stage=stage_plan.stage,

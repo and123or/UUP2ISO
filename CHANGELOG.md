@@ -1,5 +1,38 @@
 # CHANGELOG
 
+## 0.1.40 — 修 Output 崩溃：日志字段撞名 + extras 不共享 + resume 假复用
+
+> 排查结论：**不是意外中断**。日志显示 Convert 成功（3 分 25 秒，`Finished.`），
+> 随后 Output 在 5.6 秒内以 `TypeError` 失败——产物其实已完整落到输出目录。
+
+### 修复（四个）
+| # | 问题 | 根因 | 处理 |
+| --- | --- | --- | --- |
+| 1 | Output 崩在 `TypeError` | `LogSink.log()` 的形参叫 `level`，Output 又传了业务字段 `level=2` → `got multiple values for argument 'level'` | 形参改名 `severity`；并给所有保留名（`level/stage/message/logger_name`）加 `field_` 前缀兜底，**以后同类撞名不再崩** |
+| 2 | 同上（调用方） | Output 的校验级别字段叫 `level` | 改为 `verify_level`（语义也更清楚） |
+| 3 | 产物名里 `edition` 是 `unknown` | 每个阶段的 `StageContext.extras` 都是**新建的空字典**，Prepare 解析的 version 传不到 Output | 编排器持有共享 `extras`，跨阶段复用 |
+| 4 | `--resume` 只"判定"不"跳过" | `plan_resume()` 的结果只写进 JSON，编排器完全不知情 → 仍重跑 Convert（撞管理员前置） | 编排器新增 `reuse_stages`，命中记 `skipped reason=resumed` 并跳过 |
+
+### 另外
+- 阶段失败日志新增 `detail=<异常消息>`：此前只记 `reason=TypeError`，无法定位（这次就是靠它复现的）。
+
+### 真实产物验证
+```
+install.wim 3.5 GB → 产物 professional_26300.9818_unknown_zh-cn.wim  3.71 GB
+伴生：.wim.sha256（<hex> *<name>）+ .readme.txt
+自算 SHA256 与伴生一致：d2254124…96d2
+```
+
+### 测试
+- `test_logging_sink.py`（21）：新增「保留字段名不抛错且写成 `field_level=2`」。
+- `test_pipeline_session.py`（14）：新增「extras 跨阶段共享」「`reuse_stages` 命中的阶段被跳过且记 `resumed`」。
+- 全量：`pytest 全绿`；`mypy 122 files`；`ruff`/`format` 全绿。
+
+### 已知限制
+- `{arch}` 仍是 `unknown`（配置未声明架构；可从 UUP 文件名 `-amd64-` 推断，待做）。
+- 复用阶段不校验产物是否还在（只信检查点）；产物被手删会在下游报"未找到 install.wim"。
+- 上一次 `--resume` 把 Convert 记录覆盖成了 `failed`，因此下次 `--resume` 会重跑 Convert（3–4 分钟）。
+
 ## 0.1.39 — 自动 UAC 提权（非管理员不再直接失败）
 
 > 用户提问：普通权限明明能弹 UAC，为什么要失败、能不能提权后继续？

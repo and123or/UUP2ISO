@@ -266,3 +266,52 @@ def test_wired_handlers_expose_file_operations(tmp_path: Path) -> None:
         assert handler.file_operations(ctx), f"{kind} 的 file_operations 为空"
         checked += 1
     assert checked == 3
+
+
+def test_extras_shared_across_stages(tmp_path: Path) -> None:
+    """Prepare 解析出的 version 必须能被 Output 读到（此前每个阶段新建 extras）。"""
+    config = make_config(tmp_path)
+    seen: list[object] = []
+
+    class Writer(OkHandler):
+        async def run(self, ctx: object) -> None:
+            ctx.extras["version"] = "26H2/26300"  # type: ignore[attr-defined]
+
+    class Reader(OkHandler):
+        async def run(self, ctx: object) -> None:
+            seen.append(ctx.extras.get("version"))  # type: ignore[attr-defined]
+
+    kinds = stage_kinds(config)
+    handlers = {kind: OkHandler(kind) for kind in kinds}
+    handlers[kinds[0]] = Writer(kinds[0])
+    handlers[kinds[1]] = Reader(kinds[1])
+    orchestrator = PipelineOrchestrator(handlers=handlers)
+
+    asyncio.run(
+        orchestrator.run(config, task_id="t1", work_dir=tmp_path / "work")  # type: ignore[arg-type]
+    )
+
+    assert seen == ["26H2/26300"], "后一阶段必须看到前一阶段写入的 extras"
+
+
+def test_reuse_stages_are_skipped(tmp_path: Path) -> None:
+    """`--resume` 时已完成的阶段要被跳过（不能重跑，否则会撞管理员前置等检查）。"""
+    config = make_config(tmp_path)
+    kinds = stage_kinds(config)
+    executed: list[object] = []
+
+    class Recorder(OkHandler):
+        async def run(self, ctx: object) -> None:
+            executed.append(self.stage)
+
+    handlers = {kind: Recorder(kind) for kind in kinds}
+    orchestrator = PipelineOrchestrator(handlers=handlers, reuse_stages={kinds[0].value})
+
+    run = asyncio.run(
+        orchestrator.run(config, task_id="t1", work_dir=tmp_path / "work")  # type: ignore[arg-type]
+    )
+
+    assert kinds[0] not in executed, "被复用的阶段不该执行"
+    first = next(item for item in run.outcomes if item.stage is kinds[0])
+    assert first.status == "skipped"
+    assert first.skip_reason == "resumed"

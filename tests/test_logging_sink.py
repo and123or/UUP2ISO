@@ -329,3 +329,14 @@ def test_mirror_never_breaks_logging(tmp_path: Path) -> None:
     sink.close()
 
     assert sink.paths.run.is_file()
+
+
+def test_reserved_field_names_do_not_raise(tmp_path: Path) -> None:
+    """`level`/`stage`/`message` 与 log() 形参同名时加前缀，绝不抛 TypeError。"""
+    sink = _sink(tmp_path, [])
+    sink.info("app.output", "校验完成", stage="Output", level=2, images=3)
+    sink.close()
+
+    text = sink.paths.run.read_text(encoding="utf-8")
+    assert "field_level=2" in text
+    assert "images=3" in text

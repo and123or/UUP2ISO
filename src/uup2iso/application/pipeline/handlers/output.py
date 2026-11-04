@@ -286,7 +286,7 @@ class OutputStageHandler:
                 raise StageExecutionError(
                     "L2 失败：映像数为 0", code=ErrorCode.OUTPUT_VERIFY_FAILED
                 )
-            self._log(ctx, "output_validated", level=2, images=images, sha256=digest[:12])
+            self._log(ctx, "output_validated", verify_level=2, images=images, sha256=digest[:12])
 
         if level >= 3:
             verify_rc, _ = await self._wimlib(ctx, "verify", staging)
@@ -295,7 +295,7 @@ class OutputStageHandler:
                     f"L3 失败：wimlib verify 报错（exit={verify_rc}）",
                     code=ErrorCode.OUTPUT_VERIFY_FAILED,
                 )
-            self._log(ctx, "output_validated", level=3, sha256=digest[:12])
+            self._log(ctx, "output_validated", verify_level=3, sha256=digest[:12])
 
     async def _wimlib(self, ctx: StageContext, verb: str, target: Path) -> tuple[int, str]:
         """跑一次 wimlib，返回 ``(返回码, 合并后的输出文本)``。

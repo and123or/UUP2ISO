@@ -233,7 +233,7 @@ def _run_with_session(
     import sys as _sys
 
     sink.set_mirror(lambda text: print(text, file=_sys.stderr, flush=True))
-    resolved_work = work_dir or _default_work_dir(task_id)
+    resolved_work = work_dir or _default_work_dir(task_id, config)
     plan = plan_pipeline(config)  # type: ignore[arg-type]
 
     input_fp = _input_fingerprint(config)
@@ -431,10 +431,24 @@ def _input_fingerprint(config: object) -> str:
         return ""
 
 
-def _default_work_dir(task_id: str) -> Path:
+def _default_work_dir(task_id: str, config: object | None = None) -> Path:
+    r"""任务工作目录：`work\<task_id>\<配置指纹8位>\`。
+
+    只按 task_id 分层会让「同一条任务、不同配置」共用同一目录，
+    实测出现过 4.3 GB（未集成）与 8.9 GB（集成后）两份 ISO 混放。
+    配置一变指纹就变 → 目录随之隔离；续跑仍在同指纹目录内。
+    """
     from uup2iso.application.startup import default_log_dir
 
-    return default_log_dir().parent / "work" / task_id
+    base = default_log_dir().parent / "work" / task_id
+    fingerprint = ""
+    compute = getattr(config, "fingerprint", None)
+    if callable(compute):
+        try:
+            fingerprint = str(compute())[:8]
+        except (TypeError, ValueError):
+            fingerprint = ""
+    return base / fingerprint if fingerprint else base
 
 
 def _as_sync(coro: object) -> PipelineRun:

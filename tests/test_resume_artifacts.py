@@ -45,7 +45,7 @@ def record(tmp_path: Path, name: str, payload: bytes) -> ArtifactRecord:
 
 
 def test_artifact_stages_cover_convert_and_output() -> None:
-    assert ARTIFACT_STAGES == frozenset({"Convert", "Output"})
+    assert frozenset({"Convert", "Output"}) == ARTIFACT_STAGES
 
 
 def test_succeeded_convert_without_artifacts_is_not_reused(tmp_path: Path) -> None:
@@ -106,3 +106,25 @@ def test_non_artifact_stage_without_record_still_reused(tmp_path: Path) -> None:
     reuse, redo, _ = _split_reusable(checkpoint, tmp_path)
 
     assert "Prepare" in reuse and "Prepare" not in redo
+
+
+# --- 目录分层（D3）---------------------------------------------------------
+
+
+def test_work_dir_is_isolated_by_config_fingerprint() -> None:
+    """同一 task_id、不同配置 → 不同 work 目录（避免产物混放）。"""
+    from uup2iso.application.cli_runner import _default_work_dir
+    from uup2iso.core.models import default_task_config
+    from uup2iso.core.models.enums import EntryPoint
+
+    a = default_task_config(mode=EntryPoint.UUP_FOLDER)
+    from uup2iso.core.models.enums import OutputType
+
+    b = default_task_config(mode=EntryPoint.UUP_FOLDER)
+    b.output.type = OutputType.WIM  # 与 a 的默认 ISO 不同 -> 指纹不同
+
+    same = default_task_config(mode=EntryPoint.UUP_FOLDER)
+
+    assert _default_work_dir("t1", a) != _default_work_dir("t1", b)
+    assert _default_work_dir("t1", a) == _default_work_dir("t1", same)
+    assert "t1" in _default_work_dir("t1", a).parts

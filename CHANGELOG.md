@@ -1,5 +1,36 @@
 # CHANGELOG
 
+## 0.1.50 — 续跑可信度（D1）：产物登记 + 四条件复用
+
+> 前置评估发现：`_split_reusable` 里 `all([]) == True`，而**所有阶段都没登记产物**
+> （`record_artifact` 全项目零调用）→ 阶段成功即无条件复用，磁盘上被破坏的 `install.wim` 也会被信任。
+
+### 变更
+- **Convert 结束登记产物**：`install.wim` / `install.esd` / `iso`（取最新那份）→
+  `session.record_artifact()` 自动记录 size + SHA256，并记 `artifact_registered` 事件。
+- **Output 提交后登记最终产物**（复用已算好的 digest，不重复哈希）。
+- **`_split_reusable` 增加 `ARTIFACT_STAGES = {Convert, Output}`**：
+  这两个阶段若 `succeeded` 但**一条产物记录都没有** → 不可复用（重做）；
+  其余幂等阶段（Prepare/Fetch/…）保持宽松，避免无谓重跑。
+- ISO 候选改为 `_find_last`（取最新），与 0.1.49 的 Output 选择策略一致。
+
+### 影响
+| 场景 | 之前 | 现在 |
+|---|---|---|
+| Convert 成功、产物被删 | 复用 → 下游报"未找到 install.wim" | **不复用，直接重做 Convert** |
+| Convert 成功、产物被截断 | 复用 → 装出坏系统 | 大小/SHA256 不符 → 不复用 |
+| 旧检查点（无产物记录） | 复用 | 不复用（一次性重跑，之后恢复正常） |
+
+### 测试
+- 新增 `test_resume_artifacts.py`（6）：空产物不复用、有效产物复用、被篡改/被删除不复用、
+  幂等阶段不受影响、`ARTIFACT_STAGES` 覆盖 Convert/Output。
+- 全量：`pytest 全绿`；`mypy 124 files`；`ruff`/`format` 全绿。
+
+### 已知限制
+- 登记时对 `install.wim`（3.5 GB）/ `iso`（8.9 GB）算 SHA256，Convert 结束会多花 10–40 s；
+  换取的是"续跑时不复用坏产物"。
+- 旧检查点没有产物记录 → 升级后第一次 `--resume` 会重跑 Convert（预期行为）。
+
 ## 0.1.49 — 修「交付了错误 ISO」+ 支持集成后的产物名
 
 > 用户反馈：进程已跑完、产物在 `output`，但命名仍有 `unknown`。

@@ -520,6 +520,7 @@ class OutputStageHandler:
             )
 
         sidecars = self._write_sidecars(ctx, final, digest, size)
+        self._register_artifact(ctx, final, digest)
         self._log(
             ctx,
             "output_committed",
@@ -543,6 +544,16 @@ class OutputStageHandler:
             renamed=renamed,
         )
         ctx.extras["output"] = self.outcome
+
+    def _register_artifact(self, ctx: StageContext, final: Path, digest: str) -> None:
+        """登记最终产物（续跑/复核用）。失败只告警，不影响已提交的产物。"""
+        register = getattr(ctx.session, "record_artifact", None)
+        if not callable(register):
+            return
+        try:
+            register("Output", final.suffix.lstrip(".") or "artifact", final, sha256=digest)
+        except OSError as exc:
+            self._log(ctx, "artifact_register_failed", reason=type(exc).__name__)
 
     def _write_sidecars(
         self, ctx: StageContext, final: Path, digest: str, size: int

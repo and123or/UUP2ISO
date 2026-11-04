@@ -326,6 +326,10 @@ class TaskSession:
 # ---------------------------------------------------------------------------
 
 
+ARTIFACT_STAGES: frozenset[str] = frozenset({"Convert", "Output"})
+"""必须登记产物才能复用的阶段（空产物列表不再无条件信任）。"""
+
+
 def _split_reusable(
     checkpoint: Checkpoint, work_dir: Path
 ) -> tuple[list[str], list[str], list[str]]:
@@ -346,8 +350,12 @@ def _split_reusable(
             continue
 
         artifacts = checkpoint.artifacts_for(name)
-        valid = state.status is StageState.SUCCEEDED and all(
-            item.reusable and _artifact_valid(item, work_dir) for item in artifacts
+        # `all([])` 恒为 True：若阶段本该有产物却一条都没登记，说明不可信
+        needs_artifact = name in ARTIFACT_STAGES
+        valid = (
+            state.status is StageState.SUCCEEDED
+            and (bool(artifacts) if needs_artifact else True)
+            and all(item.reusable and _artifact_valid(item, work_dir) for item in artifacts)
         )
         if valid:
             reuse.append(name)

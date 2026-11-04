@@ -243,8 +243,39 @@ class ConvertStageHandler:
             "root": str(paths.root),
             "install_wim": _find_first(paths.root, "install.wim"),
             "install_esd": _find_first(paths.root, "install.esd"),
-            "iso": _find_first(paths.root, "*.iso"),
+            "iso": _find_last(paths.root, "*.iso", "*.ISO"),
         }
+        self._register_artifacts(ctx)
+
+    def _register_artifacts(self, ctx: StageContext) -> None:
+        """把产物登记进检查点（含 size + SHA256），续跑时才敢复用。
+
+        没有这一步，`_split_reusable` 的 `all([])` 会对空产物列表返回 True，
+        等于「阶段成功就无条件信任磁盘」——产物被破坏也发现不了。
+        """
+        session = ctx.session
+        register = getattr(session, "record_artifact", None)
+        if not callable(register):
+            return
+        for name in ("install_wim", "install_esd", "iso"):
+            raw = (self.outcome or {}).get(name)
+            if not raw:
+                continue
+            path = Path(str(raw))
+            if not path.is_file():
+                continue
+            try:
+                record = register("Convert", name, path)
+            except OSError as exc:  # 登记失败不阻断阶段，但必须留痕
+                self._emit(ctx, "artifact_register_failed", name=name, reason=type(exc).__name__)
+                continue
+            self._emit(
+                ctx,
+                "artifact_registered",
+                name=name,
+                size=getattr(record, "size", 0),
+                sha256=str(getattr(record, "sha256", ""))[:12],
+            )
 
     # -- 预演 -------------------------------------------------------------
 
@@ -483,6 +514,16 @@ def _require_any(root: Path, name: str, substep: str) -> None:
             f"{substep} 子步骤未产出 {name}（转换器输出可能与预期不同，请查看日志）",
             code=ErrorCode.TOOL_FAILED,
         )
+
+
+def _find_last(root: Path, *patterns: str) -> str | None:
+    """取最新的一份（转换器可能留下多份 ISO：先未集成、后集成）。"""
+    if not root.is_dir():
+        return None
+    items = [item for pattern in patterns for item in root.rglob(pattern) if item.is_file()]
+    if not items:
+        return None
+    return str(max(items, key=lambda item: item.stat().st_mtime))
 
 
 def _find_first(root: Path, pattern: str) -> str | None:

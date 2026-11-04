@@ -236,6 +236,7 @@ def _run_with_session(
     resolved_work = work_dir or _default_work_dir(task_id)
     plan = plan_pipeline(config)  # type: ignore[arg-type]
 
+    input_fp = _input_fingerprint(config)
     lines = [f"任务 {task_id}：入口 {plan.entry}，起点 {plan.start_stage.value}"]
     lines.extend(plan.summary_lines())
     # 计划先打出来（否则长任务执行期间控制台一片空白）
@@ -253,7 +254,7 @@ def _run_with_session(
     resume_payload: dict[str, object] = {}
     reuse_stages: tuple[str, ...] = ()
     if options.resume:
-        resume_plan = session.plan_resume()
+        resume_plan = session.plan_resume(input_fingerprint=input_fp or None)
         reuse_stages = tuple(resume_plan.reuse_stages)
         resume_payload = {
             "decision": resume_plan.decision.value,
@@ -360,9 +361,9 @@ def _run_with_session(
     token = SignalCancelToken()
     if options.resume:
         session.load()
-        session.begin_resume()  # 沿用原指纹与已完成阶段
+        session.begin_resume(input_fingerprint=input_fp)  # 沿用原指纹与已完成阶段
     else:
-        session.start()  # 新任务：重置检查点
+        session.start(input_fingerprint=input_fp)  # 新任务：重置检查点
 
     with token.installed():
         try:
@@ -416,6 +417,18 @@ def _error(code: str, exit_code: int, message: str) -> RunOutcome:
         payload={"error": code, "code": exit_code, "message": message},
         lines=(message,),
     )
+
+
+def _input_fingerprint(config: object) -> str:
+    """输入指纹：入口 B 取目录摘要（相对路径 + 大小），拿不到时返回空串。"""
+    try:
+        from uup2iso.infrastructure.input.fingerprint import folder_fingerprint
+
+        raw = getattr(getattr(config, "input", None), "uup_folder", None) or {}
+        path = raw.get("path") if isinstance(raw, dict) else ""
+        return folder_fingerprint(Path(str(path))) if path else ""
+    except (OSError, ValueError):
+        return ""
 
 
 def _default_work_dir(task_id: str) -> Path:

@@ -1,5 +1,36 @@
 # CHANGELOG
 
+## 0.1.51 — 续跑可信度（D2）：输入指纹
+
+> 之前 `input_fingerprint` 在 CLI 里恒为空串 → `plan_resume` 的「输入已变更，需从 Prepare 重做」
+> 这条**永远不会触发**：把 `input.uupFolder.path` 换成另一份 UUP 源，仍会被判"可续跑"，
+> 复用旧源的 `install.wim`（`TaskConfig.fingerprint()` 出于跨机比对需要，本就排除路径）。
+
+### 新增
+- `infrastructure/input/fingerprint.py`
+  - `folder_fingerprint(path)`：`sha256(相对路径 + 大小 …)`，按路径排序保证稳定；
+    不读内容（几 GB 的哈希开销留给产物校验），默认最多 5 万个文件。
+  - `paths_fingerprint(paths)`：少量文件的摘要（入口 C 备用）。
+- CLI：`_input_fingerprint(config)` 取 `input.uupFolder.path` 的目录摘要；
+  `session.start(input_fingerprint=…)` / `begin_resume(input_fingerprint=…)` /
+  `plan_resume(input_fingerprint=…)` 三处全部接上。
+
+### 效果
+| 操作 | 之前 | 现在 |
+|---|---|---|
+| 换 UUP 源后 `--resume` | 判可续跑 → 复用旧源产物 | `REJECT_INPUT_CHANGED`：「输入已变更，需从 Prepare 重做」 |
+| 同源重跑 | 正常续跑 | 不变（指纹一致） |
+| 源目录里增删文件/改大小 | 无感 | 指纹变化 → 拒绝续跑 |
+
+### 测试
+- 新增 `test_input_fingerprint.py`（7）：稳定性、增文件、改大小、嵌套目录（`Apps/<分类>/`）、
+  缺失目录、`paths_fingerprint` 与顺序无关、**与 `plan_resume` 联动拒绝续跑**。
+- 全量：`pytest 全绿`；`mypy 125 files`；`ruff`/`format` 全绿。
+
+### 已知限制
+- 只覆盖「文件集合 + 大小」：同名同大小但内容被替换不会被发现（交给出产物的 SHA256 校验兜底）。
+- 入口 A（在线获取）尚无 manifest 时返回空串，此时不参与判定。
+
 ## 0.1.50 — 续跑可信度（D1）：产物登记 + 四条件复用
 
 > 前置评估发现：`_split_reusable` 里 `all([]) == True`，而**所有阶段都没登记产物**
